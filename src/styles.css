@@ -1,0 +1,29 @@
+html, body, #root { height: 100%; margin: 0; }
+body { overflow-x: auto; }
+
+:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2457A5; }
+
+/* DFD ノードの接続ハンドル：ホバー・選択時のみ表示 */
+.react-flow__node .dfd-handle {
+  width: 8px; height: 8px; min-width: 0; min-height: 0; background: #fff; border: 1.5px solid #2457A5; opacity: 0;
+  transition: opacity .1s;
+}
+.react-flow__node:hover .dfd-handle,
+.react-flow__node.selected .dfd-handle,
+.react-flow.connecting .dfd-handle { opacity: 1; }
+.react-flow__handle.connectingto { background: #2457A5; }
+.react-flow__node:focus-visible { box-shadow: none; }
+.react-flow__node:focus-visible .dfd-node { outline: 2px solid #2457A5; outline-offset: 4px; }
+.react-flow__node.selectable:hover .dfd-node { filter: brightness(0.99); }
+
+.react-flow__controls { border: 1px solid #D5D9E0; border-radius: 6px; overflow: hidden; box-shadow: none; }
+.react-flow__controls-button { width: 28px; height: 28px; border-bottom: 1px solid #D5D9E0; }
+.react-flow__minimap { background: rgba(255,255,255,.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ファンクション表の DFD プレビューは閲覧専用：接続ハンドルを出さない */
+.dfd-preview .dfd-handle { display: none; }
+.dfd-preview .react-flow__node { cursor: pointer; }

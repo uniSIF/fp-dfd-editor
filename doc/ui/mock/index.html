@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FP DFD Editor UIモック</title>
+<style>
+:root {
+  --color-app-bg: #EEF0F3;
+  --color-surface: #FFFFFF;
+  --color-canvas: #F7F8FA;
+  --color-border: #D5D9E0;
+  --color-border-strong: #AEB5BF;
+  --color-text: #1B1F24;
+  --color-text-secondary: #5B6470;
+  --color-text-disabled: #9AA3AE;
+  --color-primary: #2457A5;
+  --color-primary-hover: #1C4684;
+  --color-primary-soft: #E6EEFA;
+  --color-warning: #B4690E;
+  --color-warning-soft: #FFF3DC;
+  --color-error: #B3261E;
+  --color-success: #2E7D4F;
+  --badge-ei: #2457A5;
+  --badge-eo: #2E7D4F;
+  --badge-eq: #B4690E;
+  --badge-ilf: #6A3FB5;
+  --badge-eif: #5B6470;
+  --font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  --row-height: 32px;
+  --control-height: 28px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --shadow-popover: 0 4px 16px rgba(27,31,36,0.16);
+  --focus-ring: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--color-primary);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--color-text);
+  background: var(--color-app-bg);
+  display: flex; flex-direction: column;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.num { font-variant-numeric: tabular-nums; }
+.secondary { color: var(--color-text-secondary); }
+
+/* ---------- モック専用ナビ ---------- */
+.mocknav {
+  background: #FFE98A; border-bottom: 1px solid #D9C25A;
+  padding: 6px 12px; font-size: var(--font-size-sm);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+}
+.mocknav strong { margin-right: 8px; }
+.mocknav button {
+  height: 24px; padding: 0 10px; border: 1px solid #B8A33C; border-radius: var(--radius-sm);
+  background: #FFF6C8; font-size: var(--font-size-sm);
+}
+.mocknav button.active { background: var(--color-text); color: #fff; border-color: var(--color-text); }
+.mocknav .sep { width: 1px; height: 18px; background: #B8A33C; margin: 0 4px; }
+
+/* ---------- アプリ全体 ---------- */
+.app { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 1080px; }
+.toolbar {
+  height: 44px; background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; padding: 0 var(--space-3); gap: var(--space-2);
+}
+.toolbar .appname { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.toolbar .project { font-weight: 600; display: flex; align-items: center; gap: 6px; margin-right: var(--space-3); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); display: inline-block; }
+.tb-group { display: flex; align-items: center; gap: 2px; }
+.tb-sep { width: 1px; height: 24px; background: var(--color-border); margin: 0 var(--space-2); }
+.iconbtn {
+  width: 32px; height: 32px; border: 0; background: transparent; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--color-text);
+}
+.iconbtn:hover { background: var(--color-primary-soft); }
+.iconbtn[disabled] { color: var(--color-text-disabled); cursor: default; }
+.iconbtn[disabled]:hover { background: transparent; }
+.iconbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tb-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-left: 2px; }
+.btn {
+  height: var(--control-height); padding: 0 var(--space-3); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); font-size: var(--font-size-md);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.btn:hover { background: #F3F5F8; }
+.btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.btn.primary:hover { background: var(--color-primary-hover); }
+.btn.danger { background: var(--color-error); border-color: var(--color-error); color: #fff; }
+.btn.text { border-color: transparent; background: transparent; color: var(--color-primary); }
+.btn.text:hover { background: var(--color-primary-soft); }
+.btn[disabled] { color: var(--color-text-disabled); background: #F3F5F8; border-color: var(--color-border); cursor: default; }
+.btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+.body { flex: 1; display: grid; grid-template-columns: 280px 1fr 320px; gap: 1px; min-height: 0; background: var(--color-border); }
+.pane { background: var(--color-surface); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ---------- 左ペイン: 機能ツリー ---------- */
+.pane-left .head { padding: var(--space-2); display: flex; gap: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.search {
+  flex: 1; white-space: nowrap; height: var(--control-height); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  padding: 0 var(--space-2); display: flex; align-items: center; gap: 6px; color: var(--color-text-disabled); background: #FBFBFC;
+}
+.search svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tree { overflow: auto; padding: var(--space-1) 0; }
+.tree .row {
+  height: var(--row-height); display: flex; align-items: center; gap: 6px; padding-right: var(--space-2);
+  position: relative; cursor: default; white-space: nowrap;
+}
+.tree .row:hover { background: #F3F5F8; }
+.tree .row.selected { background: var(--color-primary-soft); }
+.tree .row.selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--color-primary); }
+.tree .row .caret { width: 14px; text-align: center; color: var(--color-text-secondary); font-size: 10px; }
+.tree .row .ic { width: 14px; height: 14px; flex: none; }
+.tree .row .ic.sw { border: 1.5px solid var(--color-text-secondary); border-radius: 2px; }
+.tree .row .ic.cat { border: 1.5px solid var(--color-text-secondary); border-radius: 2px 2px 2px 2px; height: 11px; margin-top: 2px; border-top-width: 3px; }
+.tree .row .ic.fn { border: 1.5px solid var(--color-text-secondary); border-radius: 50%; }
+.tree .row.selected .ic { border-color: var(--color-primary); }
+.tree .row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tree .row .lv1 { font-size: var(--font-size-md); }
+.tree .row.d2 { padding-left: 16px; } .tree .row.d3 { padding-left: 32px; } .tree .row.d4 { padding-left: 48px; } .tree .row.d5 { padding-left: 64px; }
+.tree .row .hover-actions { display: none; gap: 2px; }
+.tree .row:hover .hover-actions { display: flex; }
+.tree .row .hover-actions button { width: 22px; height: 22px; border: 0; background: transparent; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
+.tree .row .hover-actions button:hover { background: var(--color-primary-soft); color: var(--color-text); }
+.chip-warn {
+  font-size: var(--font-size-xs); color: var(--color-warning); background: var(--color-warning-soft);
+  border-radius: 10px; padding: 0 6px; height: 16px; display: inline-flex; align-items: center; gap: 3px; font-weight: 600; white-space: nowrap;
+}
+.chip-warn svg, .warn-ic { width: 11px; height: 11px; }
+
+/* ---------- 中央ペイン ---------- */
+.crumb { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 0 0 var(--space-3); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-lg); }
+.crumb .secondary { font-size: var(--font-size-md); }
+.crumb .sl { color: var(--color-text-disabled); margin: 0 6px; }
+.crumb .path { flex: 1; min-width: 0; display: flex; align-items: center; white-space: nowrap; }
+.crumb .path .prefix { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crumb .path .leaf { flex: none; }
+.crumb .costbar { margin-left: auto; display: flex; align-self: stretch; border-left: 1px solid var(--color-border); }
+.crumb .costbar .stat { display: flex; align-items: baseline; gap: 6px; padding: 0 var(--space-3); border-right: 1px solid var(--color-border); white-space: nowrap; }
+.crumb .costbar .stat:last-child { border-right: 0; background: #F7F8FA; }
+.crumb .costbar .lbl { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.crumb .costbar .val { font-size: var(--font-size-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.crumb .costbar .unit { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.tabs { height: 36px; display: flex; border-bottom: 1px solid var(--color-border); padding: 0 var(--space-2); }
+.tab { padding: 0 var(--space-3); display: flex; align-items: center; border: 0; background: transparent; color: var(--color-text-secondary); position: relative; }
+.tab.active { color: var(--color-primary); font-weight: 600; }
+.tab.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--color-primary); }
+.screen { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* DFD キャンバス */
+.canvas {
+  flex: 1; position: relative; background-color: var(--color-canvas);
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px); background-size: 16px 16px;
+  overflow: hidden;
+}
+.canvas svg.dfd { width: 100%; height: 100%; display: block; }
+.palette { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 2px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 4px; box-shadow: 0 1px 2px rgba(27,31,36,0.06); }
+.palette button { height: 32px; min-width: 32px; border: 0; background: transparent; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; padding: 0 6px; color: var(--color-text); }
+.palette button:hover { background: var(--color-primary-soft); }
+.palette .sym { width: 20px; height: 20px; flex: none; }
+.palette .lbl { font-size: var(--font-size-sm); white-space: nowrap; }
+.palette hr { border: 0; border-top: 1px solid var(--color-border); margin: 2px 4px; }
+.controls { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.controls button { width: 28px; height: 28px; border: 0; border-bottom: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); font-size: 14px; }
+.controls button:last-child { border-bottom: 0; }
+.controls button:hover { background: var(--color-primary-soft); color: var(--color-text); }
+.minimap { position: absolute; right: 12px; bottom: 12px; width: 160px; height: 100px; background: rgba(255,255,255,0.9); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.minimap svg { width: 100%; height: 100%; }
+
+/* SVG ノード */
+.dfd text { font-family: var(--font-family); font-size: 13px; fill: var(--color-text); }
+.dfd .node-outline { fill: #fff; stroke: var(--color-border-strong); stroke-width: 1.5; }
+.dfd .node.selected .node-outline { stroke: var(--color-primary); stroke-width: 2; }
+.dfd .node.selected .glow { fill: none; stroke: var(--color-primary-soft); stroke-width: 8; }
+.dfd .node.warn .node-outline { stroke: var(--color-warning); stroke-width: 2; }
+.dfd .node.ncp .node-outline { fill: #F1F3F5; stroke-dasharray: 6 4; }
+.dfd .node.ncp .name { fill: var(--color-text-secondary); }
+.dfd .name { text-anchor: middle; }
+.dfd .no { font-size: 11px; fill: var(--color-text-secondary); text-anchor: middle; }
+.dfd .ref { font-size: 11px; fill: var(--color-text-secondary); text-anchor: middle; }
+.dfd .badge-bg { rx: 3; }
+.dfd .badge-tx { font-size: 11px; font-weight: 600; fill: #fff; text-anchor: middle; }
+.dfd .ee .node-outline { stroke: var(--color-text); stroke-width: 1.5; }
+.dfd .ds line { stroke: var(--color-border-strong); stroke-width: 1.5; }
+.dfd .handle { fill: #fff; stroke: var(--color-primary); stroke-width: 1.5; }
+.dfd .edge { stroke: var(--color-border-strong); stroke-width: 1.5; marker-end: url(#arrow); }
+.dfd .edge-label { font-size: 12px; text-anchor: middle; fill: var(--color-text-secondary); paint-order: stroke; stroke: var(--color-canvas); stroke-width: 5; }
+.dfd .warn-tri { fill: var(--color-warning); }
+
+/* ---------- 右ペイン: プロパティ ---------- */
+.pane-right .head { height: 40px; padding: 0 var(--space-3); display: flex; align-items: center; gap: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.pane-right .head .sw-link { margin-left: auto; font-size: var(--font-size-sm); color: var(--color-primary); background: none; border: 0; padding: 0; }
+.badge { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: var(--radius-sm); color: #fff; font-size: var(--font-size-xs); font-weight: 600; line-height: 1; }
+.badge.ei { background: var(--badge-ei); } .badge.eo { background: var(--badge-eo); } .badge.eq { background: var(--badge-eq); }
+.badge.ilf { background: var(--badge-ilf); } .badge.eif { background: var(--badge-eif); }
+.badge.ncp { background: #F1F3F5; color: var(--color-text-secondary); border: 1px dashed var(--color-border-strong); }
+.badge.ee { background: #fff; color: var(--color-text); border: 1px solid var(--color-text); }
+.badge.ref { background: #fff; color: var(--color-text-secondary); border: 1px solid var(--color-border-strong); font-weight: 400; }
+.props { overflow: auto; padding: var(--space-2) var(--space-3) var(--space-4); }
+.section { padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+.section:last-child { border-bottom: 0; }
+.section h3 { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary); }
+.field { margin-bottom: var(--space-2); }
+.field label { display: block; font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: 2px; }
+.input, .select {
+  width: 100%; height: var(--control-height); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
+  padding: 0 var(--space-2); background: var(--color-surface); display: flex; align-items: center;
+}
+.textarea { width: 100%; min-height: 56px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 5px var(--space-2); background: var(--color-surface); font-size: var(--font-size-md); line-height: 1.45; white-space: pre-wrap; }
+.textarea.placeholder { color: var(--color-text-disabled); }
+table.grid td.desc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+table.grid td.desc.empty { color: var(--color-text-disabled); }
+.dfd .memo { fill: none; stroke: var(--color-text-secondary); stroke-width: 1.4; stroke-linecap: round; }
+.input.ro { background: #F7F8FA; color: var(--color-text-secondary); border-color: var(--color-border); }
+.select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--color-text-secondary) 50%), linear-gradient(135deg, var(--color-text-secondary) 50%, transparent 50%); background-position: calc(100% - 13px) 12px, calc(100% - 9px) 12px; background-size: 4px 4px; background-repeat: no-repeat; padding-right: 24px; }
+.seg { display: flex; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); overflow: hidden; height: var(--control-height); }
+.seg button { flex: 1; white-space: nowrap; border: 0; border-right: 1px solid var(--color-border-strong); background: var(--color-surface); font-size: var(--font-size-sm); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--color-primary-soft); color: var(--color-primary); font-weight: 600; }
+.conn { list-style: none; margin: 0; padding: 0; }
+.conn li { height: 28px; display: flex; align-items: center; gap: 8px; }
+.conn li .arrow { color: var(--color-text-disabled); width: 14px; text-align: center; }
+.conn li a { color: var(--color-primary); text-decoration: none; }
+.conn li a:hover { text-decoration: underline; }
+.warnbox { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); padding: var(--space-2) var(--space-3); font-size: var(--font-size-sm); display: flex; gap: 8px; }
+.warnbox svg { flex: none; margin-top: 2px; }
+.dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: var(--font-size-sm); }
+.dl dt { color: var(--color-text-secondary); } .dl dd { margin: 0; text-align: right; }
+.dl .total dt, .dl .total dd { font-weight: 600; font-size: var(--font-size-md); border-top: 1px solid var(--color-border); padding-top: 4px; }
+
+/* ---------- ステータスバー ---------- */
+.statusbar { height: 24px; background: #F7F8FA; border-top: 1px solid var(--color-border); display: flex; align-items: center; padding: 0 var(--space-3); gap: var(--space-4); font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.statusbar .right { margin-left: auto; display: flex; gap: var(--space-4); align-items: center; }
+.statusbar .warn { color: var(--color-warning); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.statusbar .unsaved { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text); }
+
+/* ---------- 表（DataGrid 相当） ---------- */
+.gridwrap { flex: 1; min-height: 0; overflow: auto; }
+.actions { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); align-items: center; }
+.actions .spacer { flex: 1; }
+.actions h2 { margin: 0; font-size: var(--font-size-lg); font-weight: 600; white-space: nowrap; }
+.actions > * { flex: none; }
+.actions .spacer { flex: 1; }
+table.grid { border-collapse: collapse; width: 100%; font-size: var(--font-size-md); }
+table.grid th, table.grid td { height: var(--row-height); padding: 0 var(--space-2); border-bottom: 1px solid var(--color-border); text-align: left; white-space: nowrap; }
+table.grid th { height: 36px; background: #F7F8FA; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary); position: sticky; top: 0; z-index: 1; }
+table.grid th.r, table.grid td.r { text-align: right; font-variant-numeric: tabular-nums; }
+table.grid tr:hover td { background: #F8F9FB; }
+table.grid tr.selected td { background: var(--color-primary-soft); }
+table.grid tr.ref td { color: var(--color-text-disabled); }
+table.grid tr.warn td { background: var(--color-warning-soft); }
+table.grid tr.warn:hover td { background: #FFEDC9; }
+table.grid td.edit { position: relative; }
+table.grid td.edit:hover::after { content: ""; position: absolute; right: 6px; top: 11px; width: 10px; height: 10px; border-right: 1.5px solid var(--color-text-disabled); border-bottom: 1.5px solid var(--color-text-disabled); transform: rotate(-45deg) scale(0.7); }
+table.grid .pin { position: sticky; background: inherit; z-index: 2; }
+table.grid th.pin { z-index: 3; background: #F7F8FA; }
+table.grid tbody .pin { background: var(--color-surface); }
+table.grid tbody tr:hover .pin { background: #F8F9FB; }
+table.grid tfoot .pin { background: #F7F8FA; }
+table.grid .pin.p1 { left: 0; } table.grid .pin.p2 { left: 90px; } table.grid .pin.p3 { left: 180px; }
+table.grid .pin.p3::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 1px; background: var(--color-border); }
+table.grid tfoot td { background: #F7F8FA; font-weight: 600; border-top: 2px solid var(--color-border-strong); position: sticky; bottom: 0; }
+table.grid .mini { width: 22px; height: 22px; border: 0; background: transparent; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
+table.grid .mini:hover { background: var(--color-primary-soft); color: var(--color-text); }
+table.grid .colgroup { border-left: 1px solid var(--color-border); }
+.rowgroup th { background: #EEF0F3; height: 24px; font-weight: 600; text-align: center; border-left: 1px solid var(--color-border); }
+.link { color: var(--color-primary); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.cell-warn { color: var(--color-warning); display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: var(--font-size-sm); }
+
+/* ファンクション表の下部: システム特性 */
+.feature-form { border-top: 1px solid var(--color-border); padding: var(--space-3); display: grid; grid-template-columns: 260px 1fr; gap: var(--space-4); background: var(--color-surface); }
+.feature-form h3 { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary); display: flex; align-items: center; white-space: nowrap; min-width: 0; }
+.feature-form h3 .secondary { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.feature-form h3 .btn { margin-left: auto; height: 24px; font-size: var(--font-size-sm); }
+.cgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px 8px; }
+.cgrid .c { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cgrid .c .select { min-width: 0; }
+.cgrid .c label { font-size: var(--font-size-xs); color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cgrid .c label b { color: var(--color-text); font-weight: 600; margin-right: 3px; }
+.cgrid .select { height: 26px; font-size: var(--font-size-sm); }
+
+/* 空状態 */
+.empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+.empty .box { text-align: center; max-width: 360px; }
+.empty .box .fig { width: 64px; height: 64px; margin: 0 auto var(--space-3); border: 1.5px dashed var(--color-border-strong); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--color-text-disabled); }
+.empty h2 { font-size: var(--font-size-xl); margin: 0 0 var(--space-1); font-weight: 600; }
+.empty p { margin: 0 0 var(--space-4); color: var(--color-text-secondary); }
+
+/* ---------- ダイアログ / Snackbar ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(27,31,36,0.32); display: none; align-items: center; justify-content: center; z-index: 50; }
+.overlay.open { display: flex; }
+.dialog { width: 480px; max-width: calc(100% - 32px); background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-popover); display: flex; flex-direction: column; max-height: calc(100% - 64px); }
+.dialog.wide { width: 640px; }
+.dialog .dh { padding: var(--space-4) var(--space-5) var(--space-2); font-size: var(--font-size-lg); font-weight: 600; }
+.dialog .db { padding: 0 var(--space-5) var(--space-3); overflow: auto; }
+.dialog .df { padding: var(--space-3) var(--space-5) var(--space-4); display: flex; justify-content: flex-end; gap: var(--space-2); }
+.dialog .df .left { margin-right: auto; }
+.dialog p { margin: 0 0 var(--space-2); }
+.dialog ul.impact { margin: 0 0 var(--space-3); padding-left: 18px; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.dialog .field + .field { margin-top: var(--space-2); }
+.dtabs { display: flex; border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-3); }
+.dtabs .tab { height: 32px; }
+.form2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-4); }
+.unit { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-left: 6px; white-space: nowrap; }
+.inline { display: flex; align-items: center; gap: var(--space-2); }
+.inline .input { width: 120px; }
+.list { border: 1px solid var(--color-border); border-radius: var(--radius-sm); max-height: 240px; overflow: auto; }
+.list .item { height: 36px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); border-bottom: 1px solid var(--color-border); }
+.list .item:last-child { border-bottom: 0; }
+.list .item:hover { background: #F8F9FB; }
+.list .item.selected { background: var(--color-primary-soft); }
+.list .item.disabled { color: var(--color-text-disabled); }
+.list .item .meta { margin-left: auto; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.radio { display: flex; gap: var(--space-4); }
+.radio label { display: inline-flex; align-items: center; gap: 6px; }
+.choice { display: block; width: 100%; text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+.choice:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.choice[disabled] { color: var(--color-text-disabled); background: #F7F8FA; cursor: default; }
+.choice[disabled]:hover { border-color: var(--color-border); }
+.choice b { display: block; font-weight: 600; }
+.choice span { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.choice[disabled] span { color: var(--color-text-disabled); }
+.snackbar { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: var(--color-text); color: #fff; padding: 10px 14px 10px 16px; border-radius: var(--radius-sm); box-shadow: var(--shadow-popover); display: none; align-items: center; gap: var(--space-3); max-width: 560px; z-index: 60; border-left: 3px solid var(--color-error); }
+.snackbar.open { display: flex; }
+.snackbar button { background: transparent; border: 0; color: #fff; opacity: 0.8; font-size: 16px; line-height: 1; }
+@media (prefers-reduced-motion: no-preference) { .dialog { animation: pop .12s ease-out; } @keyframes pop { from { transform: translateY(4px); opacity: 0; } } }
+</style>
+</head>
+<body>
+
+<div class="mocknav" role="navigation" aria-label="モック用ナビゲーション">
+  <strong>モック用ナビゲーション（実装には含まれません）</strong>
+  <button data-screen="screen-dfd" class="active">DFD</button>
+  <button data-screen="screen-functions">ファンクション表</button>
+  <button data-screen="screen-summary">一覧</button>
+  <button data-screen="screen-ledger">台帳</button>
+  <button data-screen="screen-empty">空状態</button>
+  <span class="sep"></span>
+  <button data-dialog="dlg-settings">設定</button>
+  <button data-dialog="dlg-add-node">ノード追加</button>
+  <button data-dialog="dlg-reference">参照配置</button>
+  <button data-dialog="dlg-delete-df">削除確認</button>
+  <button data-dialog="dlg-backups">バックアップ</button>
+  <button data-dialog="snackbar">Snackbar</button>
+</div>
+
+<div class="app">
+  <!-- ツールバー -->
+  <header class="toolbar">
+    <span class="appname">FP DFD Editor</span>
+    <span class="project">サンプルプロジェクト <span class="dot" title="未保存の変更"></span></span>
+    <div class="tb-group">
+      <button class="iconbtn" title="新規 ⌘N" aria-label="新規"><svg viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14h6"/></svg></button>
+      <button class="iconbtn" title="開く ⌘O" aria-label="開く"><svg viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg></button>
+      <button class="iconbtn" title="保存 ⌘S" aria-label="保存"><svg viewBox="0 0 24 24"><path d="M4 4h12l4 4v12H4z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></svg></button>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="tb-group">
+      <button class="iconbtn" title="元に戻す ⌘Z" aria-label="元に戻す"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+      <button class="iconbtn" title="やり直す ⇧⌘Z" aria-label="やり直す" disabled><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="tb-group">
+      <button class="iconbtn" title="自動整列" aria-label="自動整列"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="6"/><rect x="15" y="4" width="6" height="6"/><rect x="9" y="14" width="6" height="6"/><path d="M6 10v2h12v-2M12 12v2"/></svg></button>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="tb-group">
+      <button class="btn" title="一覧をCSVで出力"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>CSV出力</button>
+      <button class="btn" title="このDFDをSVGで出力"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>SVG出力</button>
+    </div>
+    <span class="tb-sep"></span>
+    <button class="iconbtn" title="設定" aria-label="設定" data-dialog="dlg-settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+
+  <div class="body">
+    <!-- 左ペイン -->
+    <aside class="pane pane-left">
+      <div class="head">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>機能名で絞り込み</div>
+        <button class="btn" title="ソフトウェアを追加">＋</button>
+      </div>
+      <div class="tree">
+        <div class="row d1"><span class="caret">▾</span><span class="ic sw"></span><span class="name lv1">顧客管理システム</span><span class="hover-actions"><button title="大分類を追加">＋</button><button title="その他">⋯</button></span></div>
+        <div class="row d2"><span class="caret">▾</span><span class="ic cat"></span><span class="name">顧客管理</span><span class="hover-actions"><button title="中分類を追加">＋</button><button title="その他">⋯</button></span></div>
+        <div class="row d3"><span class="caret">▾</span><span class="ic cat"></span><span class="name">顧客情報</span><span class="hover-actions"><button title="機能を追加">＋</button><button title="その他">⋯</button></span></div>
+        <div class="row d4 selected"><span class="caret"></span><span class="ic fn"></span><span class="name">顧客登録</span><span class="chip-warn" title="未接続のノード 1 件"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg>1</span></div>
+        <div class="row d4"><span class="caret"></span><span class="ic fn"></span><span class="name">顧客検索</span></div>
+        <div class="row d3"><span class="caret">▸</span><span class="ic cat"></span><span class="name">取引履歴</span></div>
+        <div class="row d2"><span class="caret">▾</span><span class="ic cat"></span><span class="name">商品管理</span></div>
+        <div class="row d3"><span class="caret">▾</span><span class="ic cat"></span><span class="name">商品情報</span></div>
+        <div class="row d4"><span class="caret"></span><span class="ic fn"></span><span class="name">商品登録</span></div>
+        <div class="row d1"><span class="caret">▸</span><span class="ic sw"></span><span class="name lv1">帳票出力ツール</span></div>
+      </div>
+    </aside>
+
+    <!-- 中央ペイン -->
+    <main class="pane pane-center">
+      <div class="crumb"><div class="path"><span class="prefix"><span class="secondary">顧客管理システム</span><span class="sl">/</span><span class="secondary">顧客管理</span><span class="sl">/</span><span class="secondary">顧客情報</span><span class="sl">/</span></span><span class="leaf">顧客登録</span></div>
+        <div class="costbar" aria-label="開発単価"><div class="stat" title="調整済FP 19 × 8.0 H/FP = 152 H（社内 60 H × 6,000 円 ＋ A社 92 H × 5,000 円）"><span class="lbl">この機能の開発単価</span><span class="val">820,000</span><span class="unit">円</span></div><div class="stat" title="顧客管理システム 全 3 機能の合計（244 H）"><span class="lbl">ソフトウェア合計</span><span class="val">1,316,000</span><span class="unit">円</span></div></div></div>
+      <div class="tabs">
+        <button class="tab active" data-screen="screen-dfd">DFD</button>
+        <button class="tab" data-screen="screen-functions">ファンクション表</button>
+        <button class="tab" data-screen="screen-summary">一覧</button>
+        <button class="tab" data-screen="screen-ledger">台帳</button>
+      </div>
+
+      <!-- ===== DFD タブ ===== -->
+      <section id="screen-dfd" class="screen active">
+        <div class="canvas">
+          <svg class="dfd" viewBox="0 0 1040 560" preserveAspectRatio="xMidYMid meet" aria-label="顧客登録のDFD">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#AEB5BF"/></marker>
+            </defs>
+            <!-- エッジ -->
+            <line class="edge" x1="188" y1="240" x2="361" y2="150"/>
+            <text class="edge-label" x="268" y="190">登録情報</text>
+            <line class="edge" x1="444" y1="130" x2="570" y2="130"/>
+            <text class="edge-label" x="507" y="124">顧客データ</text>
+            <line class="edge" x1="400" y1="174" x2="400" y2="366"/>
+            <text class="edge-label" x="400" y="334">登録結果</text>
+            <line class="edge" x1="361" y1="390" x2="188" y2="300"/>
+            <text class="edge-label" x="268" y="356">完了通知</text>
+            <line class="edge" x1="200" y1="270" x2="616" y2="270"/>
+            <text class="edge-label" x="520" y="264">検索条件</text>
+            <line class="edge" x1="660" y1="152" x2="660" y2="226"/>
+            <text class="edge-label" x="692" y="194">顧客情報</text>
+            <line class="edge" x1="800" y1="270" x2="704" y2="270"/>
+            <text class="edge-label" x="752" y="264">商品情報</text>
+
+            <!-- 外部エンティティ: 利用者 -->
+            <g class="node ee" transform="translate(60,240)">
+              <rect class="node-outline" width="140" height="60"/>
+              <text class="name" x="70" y="35">利用者</text>
+            </g>
+
+            <!-- EI: 顧客登録入力（選択中） -->
+            <g class="node process selected" transform="translate(400,130)">
+              <circle class="glow" r="46"/>
+              <circle class="node-outline" r="44"/>
+              <rect class="badge-bg" x="-14" y="-62" width="28" height="16" fill="#2457A5"/>
+              <text class="badge-tx" y="-50">EI</text>
+              <text class="name" y="2">顧客登録入力</text>
+              <text class="no" y="18">TF-001 · 中</text>
+              <g class="memo-ic" transform="translate(30,-40)"><title>顧客の新規登録フォーム。氏名・住所・連絡先を入力し顧客マスタに登録する。入力項目が 12 項目あるため複雑度は中。</title><path class="memo" d="M1 1h8l3 3v9H1z"/><path class="memo" d="M9 1v3h3M3.5 7h5M3.5 10h5"/></g>
+              <circle class="handle" cx="0" cy="-44" r="4"/><circle class="handle" cx="44" cy="0" r="4"/><circle class="handle" cx="0" cy="44" r="4"/><circle class="handle" cx="-44" cy="0" r="4"/>
+            </g>
+
+            <!-- EO: 登録完了通知 -->
+            <g class="node process" transform="translate(400,410)">
+              <circle class="node-outline" r="44"/>
+              <rect class="badge-bg" x="-16" y="-62" width="32" height="16" fill="#2E7D4F"/>
+              <text class="badge-tx" y="-50">EO</text>
+              <text class="name" y="2">登録完了通知</text>
+              <text class="no" y="18">TF-002 · 低</text>
+            </g>
+
+            <!-- EQ: 顧客検索 -->
+            <g class="node process" transform="translate(660,270)">
+              <circle class="node-outline" r="44"/>
+              <rect class="badge-bg" x="-16" y="-62" width="32" height="16" fill="#B4690E"/>
+              <text class="badge-tx" y="-50">EQ</text>
+              <text class="name" y="2">顧客検索</text>
+              <text class="no" y="18">TF-003 · 低</text>
+            </g>
+
+            <!-- ILF: 顧客マスタ（所有） -->
+            <g class="node ds" transform="translate(570,108)">
+              <rect class="node-outline" x="0" y="0" width="180" height="44" stroke="none" fill="#fff"/>
+              <line x1="0" y1="0" x2="180" y2="0"/><line x1="0" y1="44" x2="180" y2="44"/>
+              <rect class="badge-bg" x="6" y="14" width="30" height="16" fill="#6A3FB5"/>
+              <text class="badge-tx" x="21" y="26">ILF</text>
+              <text class="name" x="108" y="20">顧客マスタ</text>
+              <text class="no" x="108" y="36">DF-001 · 中</text>
+              <g class="memo-ic" transform="translate(164,6)"><title>顧客の基本情報を保持する内部ファイル。3 レコードタイプ・25 データ項目のため複雑度は中。</title><path class="memo" d="M1 1h8l3 3v9H1z"/><path class="memo" d="M9 1v3h3M3.5 7h5M3.5 10h5"/></g>
+            </g>
+
+            <!-- ILF: 商品マスタ（参照） -->
+            <g class="node ds" transform="translate(800,248)">
+              <rect class="node-outline" x="0" y="0" width="180" height="44" stroke="none" fill="#fff"/>
+              <line x1="0" y1="0" x2="180" y2="0"/><line x1="0" y1="44" x2="180" y2="44"/>
+              <rect class="badge-bg" x="6" y="14" width="30" height="16" fill="#6A3FB5"/>
+              <text class="badge-tx" x="21" y="26">ILF</text>
+              <text class="name" x="108" y="20">商品マスタ</text>
+              <text class="no" x="108" y="36">DF-002 · 低</text>
+              <text class="ref" x="90" y="60">所有: 商品登録</text>
+            </g>
+
+            <!-- 非計上プロセス: 入力値検証（未接続・警告） -->
+            <g class="node process ncp warn" transform="translate(900,450)">
+              <circle class="node-outline" r="44"/>
+              <text class="name" y="4">入力値検証</text>
+              <path class="warn-tri" transform="translate(-62,-62) scale(0.7)" d="M12 3 2 20h20z"/>
+              <text x="-42" y="-50" font-size="11" fill="#B4690E">未接続</text>
+            </g>
+          </svg>
+
+          <div class="palette" aria-label="ノードを追加">
+            <button title="トランザクションファンクションを追加"><svg class="sym" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#fff" stroke="#2457A5" stroke-width="1.5"/></svg><span class="lbl">トランザクション</span></button>
+            <button title="非計上プロセスを追加"><svg class="sym" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#F1F3F5" stroke="#AEB5BF" stroke-width="1.5" stroke-dasharray="3 2"/></svg><span class="lbl">非計上プロセス</span></button>
+            <button title="データファンクションを追加"><svg class="sym" viewBox="0 0 20 20"><path d="M2 5h16M2 15h16" stroke="#6A3FB5" stroke-width="1.5"/></svg><span class="lbl">データファンクション</span></button>
+            <button title="外部エンティティを追加"><svg class="sym" viewBox="0 0 20 20"><rect x="2" y="4" width="16" height="12" fill="#fff" stroke="#1B1F24" stroke-width="1.5"/></svg><span class="lbl">外部エンティティ</span></button>
+            <hr>
+            <button title="既存のデータファンクション・外部エンティティを参照配置" data-dialog="dlg-reference"><svg class="sym" viewBox="0 0 20 20"><path d="M3 10h9m0 0-3-3m3 3-3 3" stroke="#5B6470" stroke-width="1.5" fill="none"/><path d="M13 5h4v10h-4" stroke="#5B6470" stroke-width="1.5" fill="none"/></svg><span class="lbl">既存を参照</span></button>
+          </div>
+
+          <div class="controls" aria-label="表示操作">
+            <button title="拡大">＋</button><button title="縮小">−</button><button title="全体表示">⤢</button><button title="ロック">🔒︎</button>
+          </div>
+          <div class="minimap" aria-hidden="true">
+            <svg viewBox="0 0 1040 560"><rect x="60" y="240" width="140" height="60" fill="#D5D9E0"/><circle cx="400" cy="130" r="44" fill="#2457A5"/><circle cx="400" cy="410" r="44" fill="#2E7D4F"/><circle cx="660" cy="270" r="44" fill="#B4690E"/><rect x="570" y="108" width="180" height="44" fill="#6A3FB5"/><rect x="800" y="248" width="180" height="44" fill="#6A3FB5"/><circle cx="900" cy="450" r="44" fill="#D5D9E0"/><rect x="0" y="0" width="1040" height="560" fill="none" stroke="#2457A5" stroke-width="6"/></svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ファンクション表タブ ===== -->
+      <section id="screen-functions" class="screen">
+        <div class="actions">
+          <button class="btn" data-dialog="dlg-add-node">＋ トランザクション</button>
+          <button class="btn">＋ データファンクション</button>
+          <button class="btn">＋ 非計上プロセス</button>
+          <button class="btn" data-dialog="dlg-reference">既存を参照…</button>
+          <span class="spacer"></span>
+          <span class="secondary num">未調整FP 21 ・ 調整済FP 19</span>
+        </div>
+        <div class="gridwrap">
+          <table class="grid">
+            <thead><tr><th style="width:72px">No</th><th style="width:110px">区分</th><th>名称</th><th style="width:90px">種別</th><th style="width:80px">複雑度</th><th class="r" style="width:56px">FP</th><th style="width:240px">説明</th><th style="width:90px">配置</th><th style="width:72px"></th></tr></thead>
+            <tbody>
+              <tr><td class="num">DF-001</td><td><span class="badge ilf">ILF</span> 所有</td><td class="edit">顧客マスタ</td><td class="edit">ILF</td><td class="edit">中</td><td class="r">10</td><td class="desc edit">顧客の基本情報を保持する内部ファイル。3 レコードタイプ・25 データ項目のため複雑度は中。</td><td class="secondary">配置済み</td><td><button class="mini" title="削除" data-dialog="dlg-delete-df">✕</button></td></tr>
+              <tr class="ref"><td class="num">DF-002</td><td><span class="badge ref">参照</span></td><td>商品マスタ <span class="secondary" style="font-size:12px">所有: 商品登録</span></td><td>ILF</td><td>低</td><td class="r">—</td><td class="desc">登録時に商品コードの存在確認で参照する。</td><td>配置済み</td><td><button class="mini" title="配置を解除">✕</button></td></tr>
+              <tr class="selected"><td class="num">TF-001</td><td><span class="badge ei">EI</span></td><td class="edit">顧客登録入力</td><td class="edit">EI</td><td class="edit">中</td><td class="r">4</td><td class="desc edit">顧客の新規登録フォーム。氏名・住所・連絡先を入力し顧客マスタに登録する。入力項目が 12 項目あるため複雑度は中。</td><td class="secondary">配置済み</td><td><button class="mini" title="削除">✕</button></td></tr>
+              <tr><td class="num">TF-002</td><td><span class="badge eo">EO</span></td><td class="edit">登録完了通知</td><td class="edit">EO</td><td class="edit">低</td><td class="r">4</td><td class="desc edit">登録後に受付番号をメールで通知する。</td><td class="secondary">配置済み</td><td><button class="mini" title="削除">✕</button></td></tr>
+              <tr><td class="num">TF-003</td><td><span class="badge eq">EQ</span></td><td class="edit">顧客検索</td><td class="edit">EQ</td><td class="edit">低</td><td class="r">3</td><td class="desc edit">登録前の重複チェック用に氏名・電話番号で照会する。</td><td class="secondary">配置済み</td><td><button class="mini" title="削除">✕</button></td></tr>
+              <tr><td class="num">TF-004</td><td><span class="badge eo">EO</span></td><td class="edit">登録エラー通知</td><td class="edit">EO</td><td class="edit">低</td><td class="r">4</td><td class="desc empty edit">説明を追加</td><td><a class="link" href="#">配置する</a></td><td><button class="mini" title="削除">✕</button></td></tr>
+              <tr class="warn"><td class="num">—</td><td><span class="badge ncp">非計上</span></td><td class="edit">入力値検証</td><td>—</td><td>—</td><td class="r">—</td><td class="desc edit">必須項目と形式のチェック。FP には計上しない。</td><td><span class="cell-warn"><svg class="warn-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg>未接続</span></td><td><button class="mini" title="削除">✕</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="feature-form">
+          <div>
+            <h3>機能の説明</h3>
+            <div class="field"><div class="textarea" style="min-height:44px">顧客の新規登録。氏名、住所、連絡先を入力し顧客マスタに登録する。</div></div>
+            <h3>開発区分と外注</h3>
+            <div class="field"><label>開発区分</label><div class="seg"><button class="on">新規</button><button>改修</button></div></div>
+            <div class="field"><label>外注業者</label><select class="select"><option>A社</option><option>B社</option><option>未選択</option></select></div>
+          </div>
+          <div>
+            <h3>システム特性 C1〜C14 <span class="secondary num" style="margin-left:8px;font-weight:400">合計 28 ・ 調整係数 0.93</span><button class="btn">既定値で上書き</button></h3>
+            <div class="cgrid">
+              <div class="c"><label><b>C1</b>データ通信</label><select class="select"><option>3</option></select></div>
+              <div class="c"><label><b>C2</b>分散データ処理</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C3</b>性能</label><select class="select"><option>3</option></select></div>
+              <div class="c"><label><b>C4</b>高負荷構成</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C5</b>トランザクション量</label><select class="select"><option>1</option></select></div>
+              <div class="c"><label><b>C6</b>オンラインデータ入力</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C7</b>エンドユーザー効率</label><select class="select"><option>3</option></select></div>
+              <div class="c"><label><b>C8</b>オンライン更新</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C9</b>複雑な処理</label><select class="select"><option>1</option></select></div>
+              <div class="c"><label><b>C10</b>再利用性</label><select class="select"><option>1</option></select></div>
+              <div class="c"><label><b>C11</b>インストール容易性</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C12</b>運用性</label><select class="select"><option>3</option></select></div>
+              <div class="c"><label><b>C13</b>複数サイト</label><select class="select"><option>2</option></select></div>
+              <div class="c"><label><b>C14</b>変更容易性</label><select class="select"><option>1</option></select></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 一覧タブ ===== -->
+      <section id="screen-summary" class="screen">
+        <div class="actions">
+          <h2>顧客管理システム</h2>
+          <span class="secondary">機能 3 件</span>
+          <span class="spacer"></span>
+          <button class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>CSV出力</button>
+        </div>
+        <div class="gridwrap">
+          <table class="grid">
+            <thead>
+              <tr class="rowgroup"><th colspan="3" class="pin p1" style="border-left:0;text-align:left;width:280px;min-width:280px">機能</th><th colspan="5">ファンクション件数</th><th colspan="3">システム特性</th><th colspan="4">FP</th><th colspan="5">工数 [H]</th><th colspan="1">費用</th><th colspan="2" style="text-align:left">補足</th></tr>
+              <tr>
+                <th class="pin p1" style="width:90px;min-width:90px">大分類</th><th class="pin p2" style="width:90px;min-width:90px">中分類</th><th class="pin p3" style="width:100px;min-width:100px">小分類</th>
+                <th class="r colgroup">ILF</th><th class="r">EIF</th><th class="r">EI</th><th class="r">EO</th><th class="r">EQ</th>
+                <th class="r colgroup">C合計</th><th>区分</th><th class="r">調整係数</th>
+                <th class="r colgroup">未調整</th><th class="r">調整済</th><th class="r">改修係数</th><th class="r">H/FP</th>
+                <th class="r colgroup">開発</th><th class="r">社内</th><th class="r">A社</th><th class="r">B社</th><th></th>
+                <th class="r colgroup">開発単価 [円]</th><th class="colgroup" style="min-width:240px">説明</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="pin p1">顧客管理</td><td class="pin p2">顧客情報</td><td class="pin p3"><a class="link" href="#">顧客登録</a></td><td class="r colgroup">1</td><td class="r">0</td><td class="r">1</td><td class="r">1</td><td class="r">1</td><td class="r colgroup">28</td><td>新規</td><td class="r">0.93</td><td class="r colgroup">21</td><td class="r">19</td><td class="r">1.00</td><td class="r">8.0</td><td class="r colgroup">152</td><td class="r">60</td><td class="r">92</td><td class="r secondary">—</td><td></td><td class="r colgroup">820,000</td><td class="desc colgroup">顧客の新規登録。氏名、住所、連絡先を入力し顧客マスタに登録する。</td><td><span class="cell-warn" title="未接続のノード 1 件"><svg class="warn-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg></span></td></tr>
+              <tr><td class="pin p1">顧客管理</td><td class="pin p2">顧客情報</td><td class="pin p3"><a class="link" href="#">顧客検索</a></td><td class="r colgroup">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">2</td><td class="r colgroup">28</td><td>改修</td><td class="r">0.93</td><td class="r colgroup">6</td><td class="r">5</td><td class="r">0.50</td><td class="r">8.0</td><td class="r colgroup">20</td><td class="r">8</td><td class="r secondary">—</td><td class="r">12</td><td></td><td class="r colgroup">108,000</td><td class="desc colgroup">既存の検索画面に詳細照会を追加</td><td></td></tr>
+              <tr><td class="pin p1">商品管理</td><td class="pin p2">商品情報</td><td class="pin p3"><a class="link" href="#">商品登録</a></td><td class="r colgroup">1</td><td class="r">0</td><td class="r">1</td><td class="r">0</td><td class="r">0</td><td class="r colgroup">28</td><td>新規</td><td class="r">0.93</td><td class="r colgroup">10</td><td class="r">9</td><td class="r">1.00</td><td class="r">8.0</td><td class="r colgroup">72</td><td class="r">28</td><td class="r">44</td><td class="r secondary">—</td><td></td><td class="r colgroup">388,000</td><td class="desc colgroup empty">説明を追加</td><td></td></tr>
+            </tbody>
+            <tfoot>
+              <tr><td colspan="3" class="pin p1">合計</td><td class="r colgroup">2</td><td class="r">0</td><td class="r">2</td><td class="r">1</td><td class="r">3</td><td class="colgroup"></td><td></td><td></td><td class="r colgroup">37</td><td class="r">33</td><td></td><td></td><td class="r colgroup">244</td><td class="r">96</td><td class="r">136</td><td class="r">12</td><td></td><td class="r colgroup">1,316,000</td><td class="colgroup"></td><td></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 台帳タブ ===== -->
+      <section id="screen-ledger" class="screen">
+        <div class="actions">
+          <div class="seg" style="width:auto"><button class="on" style="padding:0 12px">データファンクション 3</button><button style="padding:0 12px">トランザクション 6</button></div>
+          <div class="search" style="width:170px"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>名称で絞り込み</div>
+          <span class="spacer"></span>
+          <span class="chip-warn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg>所有機能未設定 1</span>
+          <button class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>CSV出力</button>
+        </div>
+        <div class="gridwrap">
+          <table class="grid">
+            <thead><tr><th style="width:80px">No</th><th>名称</th><th style="width:70px">種別</th><th style="width:70px">複雑度</th><th class="r" style="width:56px">FP</th><th style="width:180px">所有機能</th><th style="width:120px">参照している機能</th><th>説明</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              <tr><td class="num">DF-001</td><td>顧客マスタ</td><td><span class="badge ilf">ILF</span></td><td>中</td><td class="r">10</td><td class="edit">顧客管理 / 顧客情報 / 顧客登録</td><td class="secondary">—</td><td class="desc edit">顧客の基本情報を保持する内部ファイル。3 レコードタイプ・25 データ項目のため複雑度は中。</td><td></td></tr>
+              <tr><td class="num">DF-002</td><td>商品マスタ</td><td><span class="badge ilf">ILF</span></td><td>低</td><td class="r">7</td><td class="edit">商品管理 / 商品情報 / 商品登録</td><td><a class="link" href="#">顧客登録</a></td><td class="desc edit">商品コード・名称・単価を保持する。</td><td></td></tr>
+              <tr class="warn"><td class="num">DF-003</td><td>在庫マスタ</td><td><span class="badge eif">EIF</span></td><td>低</td><td class="r">5</td><td class="edit"><span class="cell-warn"><svg class="warn-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg>未設定（機能「在庫照会」が削除されました）</span></td><td class="secondary">—</td><td class="desc edit">外部の在庫システムから参照する。</td><td><button class="mini" title="削除">✕</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 空状態 ===== -->
+      <section id="screen-empty" class="screen">
+        <div class="empty">
+          <div class="box">
+            <div class="fig"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/></svg></div>
+            <h2>機能を選んでください</h2>
+            <p>左のツリーから機能を選ぶか、新しい機能を追加します。</p>
+            <button class="btn primary">機能を追加</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 右ペイン: プロパティ -->
+    <aside class="pane pane-right">
+      <div class="head"><span class="badge ei">EI</span><span class="num secondary">TF-001</span><span style="font-weight:600">トランザクション</span><button class="sw-link">機能のプロパティ</button></div>
+      <div class="props">
+        <div class="section">
+          <div class="warnbox"><svg class="warn-ic" viewBox="0 0 24 24" fill="#B4690E" width="12" height="12"><path d="M12 3 2 20h20z"/></svg><div>この機能に未接続のノードがあります: <a class="link" href="#">入力値検証</a></div></div>
+        </div>
+        <div class="section">
+          <h3>基本</h3>
+          <div class="field"><label>名称</label><div class="input">顧客登録入力</div></div>
+          <div class="field"><label>種別</label><div class="seg"><button class="on">EI</button><button>EO</button><button>EQ</button></div></div>
+          <div class="field"><label>複雑度</label><div class="seg"><button>低</button><button class="on">中</button><button>高</button></div></div>
+          <div class="field"><label>FP</label><div class="input ro num">4（EI・中）</div></div>
+        </div>
+        <div class="section">
+          <h3>説明</h3>
+          <div class="textarea">顧客の新規登録フォーム。氏名・住所・連絡先を入力し顧客マスタに登録する。入力項目が 12 項目あるため複雑度は中。</div>
+        </div>
+        <div class="section">
+          <h3>所属</h3>
+          <div class="field"><label>機能</label><div class="input ro">顧客管理 / 顧客情報 / 顧客登録</div></div>
+        </div>
+        <div class="section">
+          <h3>接続</h3>
+          <ul class="conn">
+            <li><span class="arrow">←</span><a href="#">利用者</a><span class="secondary" style="font-size:12px">登録情報</span></li>
+            <li><span class="arrow">→</span><a href="#">顧客マスタ</a><span class="secondary" style="font-size:12px">顧客データ</span></li>
+            <li><span class="arrow">→</span><a href="#">登録完了通知</a><span class="secondary" style="font-size:12px">登録結果</span></li>
+          </ul>
+        </div>
+        <div class="section">
+          <h3>機能の計算結果</h3>
+          <dl class="dl num">
+            <dt>未調整FP</dt><dd>21</dd>
+            <dt>調整係数</dt><dd>0.93</dd>
+            <dt>調整済FP</dt><dd>19</dd>
+            <dt>開発工数</dt><dd>152 H</dd>
+            <dt>社内 / 外注（A社）</dt><dd>60 H / 92 H</dd>
+            <div class="total" style="display:contents"><dt>開発単価</dt><dd>820,000 円</dd></div>
+          </dl>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <span>最終保存 10:42</span>
+    <span>バックアップ 10:51</span>
+    <span class="right">
+      <span class="unsaved"><span class="dot"></span>未保存の変更</span>
+      <span class="warn" title="クリックで一覧"><svg class="warn-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 20h20z"/></svg>警告 2</span>
+    </span>
+  </footer>
+</div>
+
+<!-- ===== 設定ダイアログ ===== -->
+<div class="overlay" id="dlg-settings" role="dialog" aria-modal="true" aria-labelledby="dlg-settings-h">
+  <div class="dialog wide">
+    <div class="dh" id="dlg-settings-h">設定: 顧客管理システム</div>
+    <div class="db">
+      <div class="dtabs"><button class="tab active">共通設定</button><button class="tab">外注業者</button><button class="tab">バックアップ</button></div>
+      <h3 style="font-size:12px;color:#5B6470;margin:0 0 8px">工数の係数</h3>
+      <div class="form2">
+        <div class="field"><label>新規: 改修係数</label><div class="inline"><div class="input num">1.00</div></div></div>
+        <div class="field"><label>新規: FP単位工数</label><div class="inline"><div class="input num">8.0</div><span class="unit">H/FP</span></div></div>
+        <div class="field"><label>改修: 改修係数</label><div class="inline"><div class="input num">0.50</div></div></div>
+        <div class="field"><label>改修: FP単位工数</label><div class="inline"><div class="input num">8.0</div><span class="unit">H/FP</span></div></div>
+      </div>
+      <h3 style="font-size:12px;color:#5B6470;margin:16px 0 8px">配分と単価</h3>
+      <div class="form2">
+        <div class="field"><label>社内への配分比率</label><div class="inline"><div class="input num">40</div><span class="unit">%</span></div></div>
+        <div class="field"><label>社内の工数単価</label><div class="inline"><div class="input num">6,000</div><span class="unit">円/H</span></div></div>
+      </div>
+      <h3 style="font-size:12px;color:#5B6470;margin:16px 0 8px">システム特性の既定値 <span style="font-weight:400">（新しい機能に適用されます）</span></h3>
+      <div class="cgrid">
+        <div class="c"><label><b>C1</b>データ通信</label><select class="select"><option>3</option></select></div>
+        <div class="c"><label><b>C2</b>分散データ処理</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C3</b>性能</label><select class="select"><option>3</option></select></div>
+        <div class="c"><label><b>C4</b>高負荷構成</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C5</b>トランザクション量</label><select class="select"><option>1</option></select></div>
+        <div class="c"><label><b>C6</b>オンラインデータ入力</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C7</b>エンドユーザー効率</label><select class="select"><option>3</option></select></div>
+        <div class="c"><label><b>C8</b>オンライン更新</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C9</b>複雑な処理</label><select class="select"><option>1</option></select></div>
+        <div class="c"><label><b>C10</b>再利用性</label><select class="select"><option>1</option></select></div>
+        <div class="c"><label><b>C11</b>インストール容易性</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C12</b>運用性</label><select class="select"><option>3</option></select></div>
+        <div class="c"><label><b>C13</b>複数サイト</label><select class="select"><option>2</option></select></div>
+        <div class="c"><label><b>C14</b>変更容易性</label><select class="select"><option>1</option></select></div>
+      </div>
+    </div>
+    <div class="df"><button class="btn text" data-close>キャンセル</button><button class="btn primary" data-close>保存</button></div>
+  </div>
+</div>
+
+<!-- ===== ノード追加ダイアログ（TF） ===== -->
+<div class="overlay" id="dlg-add-node" role="dialog" aria-modal="true" aria-labelledby="dlg-add-node-h">
+  <div class="dialog">
+    <div class="dh" id="dlg-add-node-h">トランザクションファンクションを追加</div>
+    <div class="db">
+      <div class="field"><label>名称</label><div class="input">登録エラー通知</div></div>
+      <div class="field"><label>種別</label><div class="seg"><button>EI 外部入力</button><button class="on">EO 外部出力</button><button>EQ 外部照会</button></div></div>
+      <div class="field"><label>複雑度</label><div class="seg"><button class="on">低</button><button>中</button><button>高</button></div></div>
+      <div class="field"><label>説明（任意）</label><div class="textarea placeholder" style="min-height:44px">このファンクションを配置した理由や補足</div></div>
+      <div class="field"><label>所属機能</label><div class="input ro">顧客管理 / 顧客情報 / 顧客登録</div></div>
+      <div class="warnbox" style="margin-top:12px"><svg class="warn-ic" viewBox="0 0 24 24" fill="#B4690E" width="12" height="12"><path d="M12 3 2 20h20z"/></svg><div>同じ名称・種別のファンクション「登録エラー通知（EO）」が機能「顧客検索」にあります。二重計上になっていないか確認してください。</div></div>
+    </div>
+    <div class="df"><button class="btn text" data-close>キャンセル</button><button class="btn primary" data-close>追加して配置</button></div>
+  </div>
+</div>
+
+<!-- ===== 参照配置ダイアログ ===== -->
+<div class="overlay" id="dlg-reference" role="dialog" aria-modal="true" aria-labelledby="dlg-reference-h">
+  <div class="dialog">
+    <div class="dh" id="dlg-reference-h">既存の要素をこの DFD に配置</div>
+    <div class="db">
+      <div class="dtabs"><button class="tab active">データファンクション</button><button class="tab">外部エンティティ</button></div>
+      <div class="search" style="margin-bottom:8px"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>名称で絞り込み</div>
+      <div class="list">
+        <div class="item disabled"><span class="badge ilf">ILF</span><span>顧客マスタ</span><span class="meta">所有: 顧客登録 ・ 配置済み</span></div>
+        <div class="item disabled"><span class="badge ilf">ILF</span><span>商品マスタ</span><span class="meta">所有: 商品登録 ・ 配置済み</span></div>
+        <div class="item selected"><span class="badge eif">EIF</span><span>在庫マスタ</span><span class="meta" style="color:#B4690E">所有: 未設定</span></div>
+        <div class="item"><span class="badge ilf">ILF</span><span>取引履歴</span><span class="meta">所有: 取引登録</span></div>
+      </div>
+      <p class="secondary" style="font-size:12px;margin-top:8px">参照として配置した要素の FP は所有機能にのみ計上されます。</p>
+    </div>
+    <div class="df"><button class="btn text" data-close>キャンセル</button><button class="btn primary" data-close>配置</button></div>
+  </div>
+</div>
+
+<!-- ===== DF ノード削除ダイアログ ===== -->
+<div class="overlay" id="dlg-delete-df" role="dialog" aria-modal="true" aria-labelledby="dlg-delete-df-h">
+  <div class="dialog">
+    <div class="dh" id="dlg-delete-df-h">「顧客マスタ」をどうしますか</div>
+    <div class="db">
+      <p class="secondary" style="font-size:12px">ILF ・ DF-001 ・ 所有機能: 顧客登録</p>
+      <button class="choice" data-close><b>この DFD から配置を解除</b><span>ファンクションは残り、FP の計上も変わりません。</span></button>
+      <button class="choice" disabled><b>ファンクションを削除</b><span>機能「顧客検索」「取引登録」が参照しているため削除できません。先に参照を解除してください。</span></button>
+    </div>
+    <div class="df"><button class="btn text" data-close>キャンセル</button></div>
+  </div>
+</div>
+
+<!-- ===== バックアップ一覧ダイアログ ===== -->
+<div class="overlay" id="dlg-backups" role="dialog" aria-modal="true" aria-labelledby="dlg-backups-h">
+  <div class="dialog">
+    <div class="dh" id="dlg-backups-h">バックアップから読み込む</div>
+    <div class="db">
+      <p class="secondary" style="font-size:12px">1 分ごとに自動保存されたバックアップです。最大 10 世代を保持します。</p>
+      <div class="list">
+        <div class="item selected"><span class="num">2026-11-02 10:51</span><span class="secondary" style="font-size:12px">最新</span><span class="meta num">48 KB</span></div>
+        <div class="item"><span class="num">2026-11-02 10:50</span><span class="meta num">48 KB</span></div>
+        <div class="item"><span class="num">2026-11-02 10:47</span><span class="meta num">47 KB</span></div>
+        <div class="item"><span class="num">2026-11-02 10:42</span><span class="secondary" style="font-size:12px">手動保存と同じ</span><span class="meta num">47 KB</span></div>
+        <div class="item"><span class="num">2026-11-02 10:38</span><span class="meta num">46 KB</span></div>
+      </div>
+      <div class="warnbox" style="margin-top:12px"><svg class="warn-ic" viewBox="0 0 24 24" fill="#B4690E" width="12" height="12"><path d="M12 3 2 20h20z"/></svg><div>保存していない変更があります（最終保存 10:42）。読み込むと現在の内容は失われます。</div></div>
+    </div>
+    <div class="df"><button class="btn text left">ファイルから開く…</button><button class="btn text" data-close>キャンセル</button><button class="btn danger" data-close>読み込む</button></div>
+  </div>
+</div>
+
+<!-- ===== Snackbar ===== -->
+<div class="snackbar" id="snackbar" role="status">
+  <span>外部エンティティとデータストアは直接接続できません。プロセスを介してください。</span>
+  <button data-close aria-label="閉じる">×</button>
+</div>
+
+<script>
+(function () {
+  const screens = document.querySelectorAll('.screen');
+  function showScreen(id) {
+    screens.forEach(s => s.classList.toggle('active', s.id === id));
+    document.querySelectorAll('[data-screen]').forEach(b => b.classList.toggle('active', b.dataset.screen === id));
+    const tabIds = { 'screen-dfd': 'DFD', 'screen-functions': 'ファンクション表', 'screen-summary': '一覧', 'screen-ledger': '台帳' };
+    document.querySelectorAll('.tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.screen === id));
+  }
+  document.querySelectorAll('[data-screen]').forEach(b => b.addEventListener('click', () => showScreen(b.dataset.screen)));
+  document.querySelectorAll('[data-dialog]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById(b.dataset.dialog).classList.add('open');
+  }));
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => {
+    b.closest('.overlay, .snackbar').classList.remove('open');
+  }));
+  document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.open').forEach(o => o.classList.remove('open')); });
+  // URL ハッシュで画面・ダイアログを直接開く（例: #screen-summary, #dlg-settings, #screen-functions+dlg-add-node）
+  const hash = location.hash.slice(1);
+  if (hash) hash.split('+').forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.classList.contains('screen')) showScreen(id); else el.classList.add('open');
+  });
+})();
+</script>
+</body>
+</html>
