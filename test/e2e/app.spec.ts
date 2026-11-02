@@ -517,3 +517,116 @@ test('外部と内部の境界を四角で囲み、ノードの移動に追従�
     await page.locator('svg').first().screenshot({ path: `${SHOTS}/20-boundary-svg.png` });
   }
 });
+
+test('ツリーのメニュー「名前を変更」で各階層の名称を変えられる', async ({ page }) => {
+  await openSample(page);
+  const rename = async (testId: string, newName: string) => {
+    const row = page.getByTestId(testId);
+    await row.hover();
+    await row.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: '名前を変更' }).click();
+    const input = page.getByRole('tree').getByRole('textbox', { name: '名称', exact: true });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(testId.split('-').slice(2).join('-'));
+    await page.keyboard.type(newName); // 全選択されているので置き換わる
+    await page.keyboard.press('Enter');
+    await expect(input).toHaveCount(0);
+  };
+  await rename('tree-software-顧客管理システム', '顧客システム');
+  await rename('tree-category1-顧客管理', '顧客');
+  await rename('tree-category2-顧客情報', '顧客基本情報');
+  await rename('tree-feature-顧客登録', '顧客新規登録');
+  for (const id of ['tree-software-顧客システム', 'tree-category1-顧客', 'tree-category2-顧客基本情報', 'tree-feature-顧客新規登録']) {
+    await expect(page.getByTestId(id)).toBeVisible();
+  }
+  // パンくずと費用サマリーにも反映
+  await expect(page.getByText('顧客システム', { exact: true }).first()).toBeVisible();
+  // ダブルクリックでも改名でき、Escape で取り消せる
+  await page.getByTestId('tree-feature-顧客検索').dblclick();
+  const input = page.getByRole('tree').getByRole('textbox', { name: '名称', exact: true });
+  await expect(input).toBeFocused();
+  await page.keyboard.type('取り消す名前');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('tree-feature-顧客検索')).toBeVisible();
+  // 1 回の Undo で直前の改名が戻る
+  await page.locator('body').click({ position: { x: 5, y: 890 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('tree-feature-顧客登録')).toBeVisible();
+});
+
+test('ツリーをドラッグして分類と機能を並べ替え・移動できる（FR-CT-02）', async ({ page }) => {
+  await openSample(page);
+  const order = () => page.locator('[role="tree"] .tree-row').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')!.replace(/^tree-/, '')));
+  const row = (testId: string) => page.getByTestId(`tree-${testId}`);
+  const drag = async (from: string, to: string, where: 'upper' | 'lower' | 'middle') => {
+    const box = (await row(to).boundingBox())!;
+    const y = where === 'upper' ? 6 : where === 'lower' ? box.height - 6 : box.height / 2;
+    await row(from).dragTo(row(to), { targetPosition: { x: 60, y } });
+  };
+  expect(await order()).toEqual([
+    'software-顧客管理システム', 'category1-顧客管理', 'category2-顧客情報', 'feature-顧客登録', 'feature-顧客検索',
+    'category1-商品管理', 'category2-商品情報', 'feature-商品登録',
+  ]);
+  // 同じ中分類の中で並べ替え（上半分に落とすと前）
+  await drag('feature-顧客検索', 'feature-顧客登録', 'upper');
+  expect((await order()).slice(3, 5)).toEqual(['feature-顧客検索', 'feature-顧客登録']);
+  // 機能を別の中分類の行に落とすとその末尾へ
+  await drag('feature-顧客登録', 'category2-商品情報', 'middle');
+  expect((await order()).slice(-3)).toEqual(['category2-商品情報', 'feature-商品登録', 'feature-顧客登録']);
+  // 大分類の並べ替え（下半分に落とすと後ろ）
+  await drag('category1-顧客管理', 'category1-商品管理', 'lower');
+  expect((await order())[1]).toBe('category1-商品管理');
+  // 中分類を別の大分類へ
+  await drag('category2-商品情報', 'category1-顧客管理', 'middle');
+  expect(await order()).toEqual([
+    'software-顧客管理システム', 'category1-商品管理', 'category1-顧客管理', 'category2-顧客情報', 'feature-顧客検索',
+    'category2-商品情報', 'feature-商品登録', 'feature-顧客登録',
+  ]);
+  await shot(page, '21-tree-dnd');
+  // 階層をまたぐ移動（機能を大分類の行へ）はしない
+  const before = await order();
+  await drag('feature-顧客検索', 'category1-商品管理', 'middle');
+  expect(await order()).toEqual(before);
+  // 1 回の Undo で直前の移動だけ戻る
+  await page.locator('body').click({ position: { x: 5, y: 890 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  expect((await order()).slice(1, 3)).toEqual(['category1-商品管理', 'category2-商品情報']);
+  // 一覧タブの並びもツリーに従う
+  await page.getByRole('tab', { name: '一覧' }).click();
+  const names = await page.locator('table tbody tr td:nth-child(3)').allTextContents();
+  expect(names).toEqual(['商品登録', '顧客登録', '顧客検索']);
+});
+
+test('メニューから小分類を別の中分類へ、中分類を別の大分類へ移せる（FR-CT-02）', async ({ page }) => {
+  await openSample(page);
+  const order = () => page.locator('[role="tree"] .tree-row').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')!.replace(/^tree-/, '')));
+  const openMoveMenu = async (testId: string, label: string) => {
+    const row = page.getByTestId(`tree-${testId}`);
+    await row.hover();
+    await row.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: label }).click();
+  };
+  // 小分類 → 別の中分類
+  await openMoveMenu('feature-顧客検索', '別の中分類へ移動…');
+  const dest = page.getByRole('menu', { name: '移動先' });
+  await expect(dest.getByRole('menuitem', { name: /顧客管理 \/ 顧客情報/ })).toBeDisabled(); // 現在の場所
+  // メニューは対象の行の下に出る
+  const rowBox = (await page.getByTestId('tree-feature-顧客検索').boundingBox())!;
+  const menuBox = (await dest.boundingBox())!;
+  expect(Math.abs(menuBox.y - (rowBox.y + rowBox.height))).toBeLessThan(24);
+  await shot(page, '22-move-menu');
+  await dest.getByRole('menuitem', { name: '商品管理 / 商品情報' }).click();
+  expect((await order()).slice(-2)).toEqual(['feature-商品登録', 'feature-顧客検索']);
+  // 中分類 → 別の大分類
+  await openMoveMenu('category2-商品情報', '別の大分類へ移動…');
+  await page.getByRole('menu', { name: '移動先' }).getByRole('menuitem', { name: '顧客管理', exact: true }).click();
+  expect(await order()).toEqual([
+    'software-顧客管理システム', 'category1-顧客管理', 'category2-顧客情報', 'feature-顧客登録',
+    'category2-商品情報', 'feature-商品登録', 'feature-顧客検索', 'category1-商品管理',
+  ]);
+  // 大分類にはこの項目がない
+  const c1 = page.getByTestId('tree-category1-商品管理');
+  await c1.hover();
+  await c1.getByRole('button', { name: 'その他の操作' }).click();
+  await expect(page.getByRole('menuitem', { name: /移動…/ })).toHaveCount(0);
+});

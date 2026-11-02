@@ -87,7 +87,11 @@ export interface DocumentSlice {
   addCategory2: (category1Id: Id, name: string) => Id;
   renameCategory: (id: Id, name: string) => void;
   removeCategory: (id: Id) => void;
-  moveCategory: (id: Id, newIndex: number) => void;
+  /**
+   * 分類の並べ替え。newIndex は移動元から取り除いたあとの並びでの位置。
+   * 中分類は newParentId（大分類）を指定すると、同じソフトウェア内の別の大分類へ移す。
+   */
+  moveCategory: (id: Id, newIndex: number, newParentId?: Id) => void;
   addFeature: (category2Id: Id, name: string) => Id;
   updateFeature: (
     id: Id,

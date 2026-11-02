@@ -103,6 +103,32 @@ function moveInArray<T>(arr: T[], item: T, newIndex: number): void {
   arr.splice(Math.max(0, Math.min(newIndex, arr.length)), 0, item);
 }
 
+/** 並びが変わるか（変わらない・移動できない操作で履歴を積まないため） */
+function changesOrder(list: Id[], id: Id, newIndex: number): boolean {
+  const rest = list.filter((x) => x !== id);
+  const at = Math.max(0, Math.min(newIndex, rest.length));
+  return list.indexOf(id) !== at;
+}
+
+function canMoveCategory(doc: FpDocument, id: Id, newIndex: number, newParentId?: Id): boolean {
+  const c1 = doc.category1s[id];
+  if (c1) return changesOrder(doc.softwares[c1.softwareId].category1Ids, id, newIndex);
+  const c2 = doc.category2s[id];
+  if (!c2) return false;
+  if (!newParentId || newParentId === c2.category1Id) return changesOrder(doc.category1s[c2.category1Id].category2Ids, id, newIndex);
+  const to = doc.category1s[newParentId];
+  return !!to && to.softwareId === doc.category1s[c2.category1Id]?.softwareId;
+}
+
+function canMoveFeature(doc: FpDocument, id: Id, category2Id: Id, newIndex: number): boolean {
+  const f = doc.features[id];
+  if (!f) return false;
+  if (f.category2Id === category2Id) return changesOrder(doc.category2s[category2Id].featureIds, id, newIndex);
+  const from = doc.category2s[f.category2Id];
+  const to = doc.category2s[category2Id];
+  return !!to && doc.category1s[to.category1Id]?.softwareId === doc.category1s[from.category1Id]?.softwareId;
+}
+
 // ---------- スライス ----------
 
 export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument): DocumentSlice {
@@ -229,13 +255,26 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           s.selectedNodeIds = [];
         }
       }),
-    moveCategory: (id, newIndex) =>
+    moveCategory: (id, newIndex, newParentId) => {
+      if (!canMoveCategory(get().doc, id, newIndex, newParentId)) return;
       mutate((d) => {
         const c1 = d.category1s[id];
         if (c1) moveInArray(d.softwares[c1.softwareId].category1Ids, id, newIndex);
         const c2 = d.category2s[id];
-        if (c2) moveInArray(d.category1s[c2.category1Id].category2Ids, id, newIndex);
-      }),
+        if (!c2) return;
+        if (!newParentId || newParentId === c2.category1Id) {
+          moveInArray(d.category1s[c2.category1Id].category2Ids, id, newIndex);
+          return;
+        }
+        // 別の大分類へ。ソフトウェアをまたぐ移動は不可
+        const from = d.category1s[c2.category1Id];
+        const to = d.category1s[newParentId];
+        if (!to || to.softwareId !== from.softwareId) return;
+        from.category2Ids = from.category2Ids.filter((x) => x !== id);
+        to.category2Ids.splice(Math.max(0, Math.min(newIndex, to.category2Ids.length)), 0, id);
+        c2.category1Id = newParentId;
+      });
+    },
     addFeature: (category2Id, name) => {
       const id = newId();
       mutate((d, s) => {
@@ -269,7 +308,8 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           s.selectedEdgeId = null;
         }
       }),
-    moveFeature: (id, category2Id, newIndex) =>
+    moveFeature: (id, category2Id, newIndex) => {
+      if (!canMoveFeature(get().doc, id, category2Id, newIndex)) return;
       mutate((d) => {
         const f = d.features[id];
         const from = d.category2s[f.category2Id];
@@ -277,11 +317,14 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           moveInArray(from.featureIds, id, newIndex);
           return;
         }
-        from.featureIds = from.featureIds.filter((x) => x !== id);
         const to = d.category2s[category2Id];
+        // ソフトウェアをまたぐ移動は不可（データファンクションや外注業者がソフトウェア単位のため）
+        if (!to || d.category1s[to.category1Id]?.softwareId !== d.category1s[from.category1Id]?.softwareId) return;
+        from.featureIds = from.featureIds.filter((x) => x !== id);
         to.featureIds.splice(Math.max(0, Math.min(newIndex, to.featureIds.length)), 0, id);
         f.category2Id = category2Id;
-      }),
+      });
+    },
     resetCharacteristics: (id) =>
       mutate((d) => {
         const swId = requireSoftwareId(d, id);

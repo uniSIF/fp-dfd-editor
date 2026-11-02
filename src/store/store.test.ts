@@ -189,4 +189,44 @@ describe('store', () => {
     expect(edges.find((e) => e.label === '照会結果')!.targetNodeId).toBe(right);
     expect(edges.find((e) => e.label === '再送依頼')!.sourceNodeId).toBe('n1');
   });
+
+  it('分類と機能の並べ替え・別の親への移動（FR-CT-02）', () => {
+    const store = setup();
+    // 大分類の並べ替え
+    store.getState().moveCategory('c1b', 0);
+    expect(store.getState().doc.softwares.sw1.category1Ids).toEqual(['c1b', 'c1a']);
+    // 中分類を別の大分類へ
+    store.getState().moveCategory('c2b', 0, 'c1a');
+    let doc = store.getState().doc;
+    expect(doc.category1s.c1a.category2Ids).toEqual(['c2b', 'c2a']);
+    expect(doc.category1s.c1b.category2Ids).toEqual([]);
+    expect(doc.category2s.c2b.category1Id).toBe('c1a');
+    // 機能を同じ中分類内で並べ替え・別の中分類へ
+    store.getState().moveFeature('fSearch', 'c2a', 0);
+    expect(store.getState().doc.category2s.c2a.featureIds).toEqual(['fSearch', 'fReg']);
+    store.getState().moveFeature('fReg', 'c2b', 1);
+    doc = store.getState().doc;
+    expect(doc.category2s.c2b.featureIds).toEqual(['fItem', 'fReg']);
+    expect(doc.features.fReg.category2Id).toBe('c2b');
+    // 1 回の Undo で 1 操作ずつ戻る
+    undo(store);
+    expect(store.getState().doc.features.fReg.category2Id).toBe('c2a');
+  });
+
+  it('別のソフトウェアへの分類・機能の移動はしない', () => {
+    const store = setup();
+    const sw2 = store.getState().addSoftware('別システム');
+    const c1 = store.getState().addCategory1(sw2, '大');
+    const c2 = store.getState().addCategory2(c1, '中');
+    store.getState().moveCategory('c2a', 0, c1);
+    store.getState().moveFeature('fReg', c2, 0);
+    const doc = store.getState().doc;
+    expect(doc.category2s.c2a.category1Id).toBe('c1a');
+    expect(doc.features.fReg.category2Id).toBe('c2a');
+    // 拒否した移動・並びが変わらない移動では履歴を積まない
+    const before = store.temporal.getState().pastStates.length;
+    store.getState().moveFeature('fReg', 'c2a', 0);
+    store.getState().moveCategory('c1a', 0);
+    expect(store.temporal.getState().pastStates.length).toBe(before);
+  });
 });

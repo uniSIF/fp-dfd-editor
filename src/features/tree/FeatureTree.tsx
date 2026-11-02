@@ -8,7 +8,7 @@ import InputBase from '@mui/material/InputBase';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { selectTree, type TreeNode } from '../../store/selectors';
 import { openSample } from '../app/commands';
@@ -54,6 +54,18 @@ export function FeatureTree() {
   const [editing, setEditing] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [menu, setMenu] = useState<{ anchor: HTMLElement; node: TreeNode; siblings: TreeNode[] } | null>(null);
+  /** 「別の中分類へ移動…」「別の大分類へ移動…」の移動先メニュー（ドラッグを使わない移動、FR-CT-02） */
+  const [moveMenu, setMoveMenu] = useState<{ anchor: HTMLElement; node: TreeNode } | null>(null);
+  /**
+   * メニューから「名前を変更」を選んだ対象。メニューが閉じ切ってから入力欄を開く。
+   * 閉じる途中で入力欄を開くと、メニューのフォーカス制御に奪われて入力欄がすぐ閉じてしまうため。
+   */
+  const pendingRename = useRef<string | null>(null);
+  /** ドラッグ中の項目と、現在のドロップ先（FR-CT-02） */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [drop, setDrop] = useState<{ id: string; pos: DropPos } | null>(null);
+  const index = useMemo(() => indexTree(tree), [tree]);
+  const dragEnabled = !filter.trim();
 
   const visible = useMemo(() => {
     const q = filter.trim();
@@ -119,6 +131,25 @@ export function FeatureTree() {
     else if (n.kind !== 'software') s.moveCategory(n.id, idx);
   };
 
+  /** ドロップを確定する。並び替え先は「移動元から取り除いたあとの並び」での位置 */
+  const performDrop = (target: { id: string; pos: DropPos }) => {
+    if (!dragId) return;
+    const plan = planDrop(index, dragId, target.id, target.pos);
+    if (!plan) return;
+    const s = a();
+    const kind = index.get(dragId)!.kind;
+    if (kind === 'feature') s.moveFeature(dragId, plan.parentId, plan.index);
+    else if (kind === 'category2') s.moveCategory(dragId, plan.index, plan.parentId);
+    else if (kind === 'category1') s.moveCategory(dragId, plan.index);
+    if (target.pos === 'inside') {
+      setCollapsed((c) => {
+        const next = new Set(c);
+        next.delete(target.id);
+        return next;
+      });
+    }
+  };
+
   const renderNode = (n: TreeNode, depth: number, siblings: TreeNode[]) => {
     const isOpen = !collapsed.has(n.id) || !!filter.trim();
     const selected = n.kind === 'feature' ? n.id === selectedFeatureId : n.kind === 'software' && !selectedFeatureId && n.id === selectedSoftwareId;
@@ -136,9 +167,49 @@ export function FeatureTree() {
             }
           }}
           onDoubleClick={() => setEditing(n.id)}
+          draggable={dragEnabled && n.kind !== 'software' && editing !== n.id}
+          aria-grabbed={dragId === n.id ? true : undefined}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.setData('text/plain', n.id);
+            e.dataTransfer.effectAllowed = 'move';
+            setDragId(n.id);
+          }}
+          onDragOver={(e) => {
+            if (!dragId) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pos = dropPosition(index, dragId, n.id, e.clientY - rect.top < rect.height / 2);
+            if (!pos || !planDrop(index, dragId, n.id, pos)) {
+              if (drop?.id === n.id) setDrop(null);
+              return;
+            }
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (drop?.id !== n.id || drop.pos !== pos) setDrop({ id: n.id, pos });
+          }}
+          onDragLeave={(e) => {
+            if (drop?.id === n.id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (drop) performDrop(drop);
+            setDrop(null);
+            setDragId(null);
+          }}
+          onDragEnd={() => {
+            setDrop(null);
+            setDragId(null);
+          }}
+          data-drop={drop?.id === n.id ? drop.pos : undefined}
           sx={{
             height: 32, display: 'flex', alignItems: 'center', gap: '6px', pr: 2, pl: `${depth * 16 + 4}px`, position: 'relative', cursor: 'default',
-            whiteSpace: 'nowrap', background: selected ? tokens.primarySoft : undefined,
+            whiteSpace: 'nowrap', background: selected || drop?.id === n.id && drop.pos === 'inside' ? tokens.primarySoft : undefined,
+            opacity: dragId === n.id ? 0.5 : 1,
+            outline: drop?.id === n.id && drop.pos === 'inside' ? `1px solid ${tokens.primary}` : undefined,
+            outlineOffset: -1,
+            '&::after': drop?.id === n.id && drop.pos !== 'inside'
+              ? { content: '""', position: 'absolute', left: `${depth * 16 + 4}px`, right: 8, height: 2, background: tokens.primary, borderRadius: 1, [drop.pos === 'before' ? 'top' : 'bottom']: -1 }
+              : undefined,
             '&:hover': { background: selected ? tokens.primarySoft : tokens.hover },
             '&::before': selected ? { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: tokens.primary } : undefined,
             '& .hover-actions': { display: 'none' },
@@ -233,17 +304,82 @@ export function FeatureTree() {
           visible.map((n) => renderNode(n, 0, visible))
         )}
       </Box>
-      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
+      <Menu
+        anchorEl={menu?.anchor}
+        open={!!menu}
+        onClose={() => setMenu(null)}
+        // 閉じたあと「⋯」ボタンへフォーカスを戻さない（改名の入力欄からフォーカスを奪わないため）
+        disableRestoreFocus
+        slotProps={{
+          transition: {
+            onExited: () => {
+              if (pendingRename.current) {
+                setEditing(pendingRename.current);
+                pendingRename.current = null;
+              }
+            },
+          },
+        }}
+      >
         {menu && [
-          <MenuItem key="rename" dense onClick={() => { setEditing(menu.node.id); setMenu(null); }}>名前を変更</MenuItem>,
+          <MenuItem key="rename" dense onClick={() => { pendingRename.current = menu.node.id; setMenu(null); }}>名前を変更</MenuItem>,
           menu.node.kind !== 'software' && (
             <MenuItem key="up" dense disabled={menu.siblings[0]?.id === menu.node.id} onClick={() => { move(menu.node, menu.siblings, -1); setMenu(null); }}>上へ移動</MenuItem>
           ),
           menu.node.kind !== 'software' && (
             <MenuItem key="down" dense disabled={menu.siblings[menu.siblings.length - 1]?.id === menu.node.id} onClick={() => { move(menu.node, menu.siblings, 1); setMenu(null); }}>下へ移動</MenuItem>
           ),
+          (menu.node.kind === 'feature' || menu.node.kind === 'category2') && (
+            <MenuItem key="moveTo" dense onClick={() => {
+              // 「⋯」ボタンはマウスが離れると非表示になり位置を取れないため、行そのものを基準にする
+              const row = (menu.anchor.closest('.tree-row') as HTMLElement | null) ?? menu.anchor;
+              setMoveMenu({ anchor: row, node: menu.node });
+              setMenu(null);
+            }}>
+              {menu.node.kind === 'feature' ? '別の中分類へ移動…' : '別の大分類へ移動…'}
+            </MenuItem>
+          ),
           <MenuItem key="del" dense sx={{ color: tokens.error }} onClick={() => { remove(menu.node); setMenu(null); }}>削除</MenuItem>,
         ]}
+      </Menu>
+      <Menu
+        anchorEl={moveMenu?.anchor}
+        open={!!moveMenu}
+        onClose={() => setMoveMenu(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        disableRestoreFocus
+        slotProps={{ list: { 'aria-label': '移動先', dense: true }, paper: { sx: { maxHeight: 360 } } }}
+      >
+        {moveMenu && (
+          <MenuItem disabled dense sx={{ fontSize: 12, opacity: '1 !important', color: tokens.textSecondary }}>
+            「{moveMenu.node.name}」の移動先
+          </MenuItem>
+        )}
+        {moveMenu &&
+          moveDestinations(tree, index, moveMenu.node).map((dest) => (
+            <MenuItem
+              key={dest.id}
+              dense
+              disabled={dest.current}
+              onClick={() => {
+                const s = a();
+                const n = moveMenu.node;
+                const at = index.get(dest.id)!.childIds.length;
+                if (n.kind === 'feature') s.moveFeature(n.id, dest.id, at);
+                else s.moveCategory(n.id, at, dest.id);
+                setCollapsed((c) => {
+                  const next = new Set(c);
+                  next.delete(dest.id);
+                  return next;
+                });
+                setMoveMenu(null);
+              }}
+            >
+              {dest.label}
+              {dest.current && <span style={{ marginLeft: 8, fontSize: 11, color: tokens.textSecondary }}>（現在の場所）</span>}
+            </MenuItem>
+          ))}
       </Menu>
     </Box>
   );
@@ -254,4 +390,82 @@ function NodeIcon({ kind, selected }: { kind: TreeNode['kind']; selected: boolea
   if (kind === 'feature') return <span style={{ width: 14, height: 14, border: `1.5px solid ${c}`, borderRadius: '50%', flex: 'none', boxSizing: 'border-box' }} />;
   if (kind === 'software') return <span style={{ width: 14, height: 14, border: `1.5px solid ${c}`, borderRadius: 2, flex: 'none', boxSizing: 'border-box' }} />;
   return <span style={{ width: 14, height: 11, border: `1.5px solid ${c}`, borderTopWidth: 3, borderRadius: 2, flex: 'none', marginTop: 2, boxSizing: 'border-box' }} />;
+}
+
+// ---------- ドラッグによる並べ替え（FR-CT-02） ----------
+
+type DropPos = 'before' | 'after' | 'inside';
+
+interface TreeIndexEntry {
+  kind: TreeNode['kind'];
+  parentId: string | null;
+  softwareId: string;
+  childIds: string[];
+}
+
+function indexTree(tree: TreeNode[]): Map<string, TreeIndexEntry> {
+  const map = new Map<string, TreeIndexEntry>();
+  const walk = (n: TreeNode, parentId: string | null, softwareId: string) => {
+    map.set(n.id, { kind: n.kind, parentId, softwareId, childIds: n.children.map((c) => c.id) });
+    for (const c of n.children) walk(c, n.id, softwareId);
+  };
+  for (const sw of tree) walk(sw, null, sw.id);
+  return map;
+}
+
+const PARENT_KIND: Partial<Record<TreeNode['kind'], TreeNode['kind']>> = {
+  category1: 'software',
+  category2: 'category1',
+  feature: 'category2',
+};
+
+/** 行のどこに落とすか。同じ階層なら上半分で前・下半分で後ろ、1 つ上の階層ならその中（末尾） */
+function dropPosition(index: Map<string, TreeIndexEntry>, dragId: string, targetId: string, upperHalf: boolean): DropPos | null {
+  const d = index.get(dragId);
+  const t = index.get(targetId);
+  if (!d || !t || dragId === targetId) return null;
+  if (t.kind === d.kind) return upperHalf ? 'before' : 'after';
+  if (t.kind === PARENT_KIND[d.kind]) return 'inside';
+  return null;
+}
+
+/** 移動先の親と、移動元から取り除いたあとの並びでの位置。移動できない・並びが変わらないなら null */
+function planDrop(index: Map<string, TreeIndexEntry>, dragId: string, targetId: string, pos: DropPos): { parentId: string; index: number } | null {
+  const d = index.get(dragId);
+  const t = index.get(targetId);
+  if (!d || !t || dragId === targetId || d.softwareId !== t.softwareId) return null;
+  let parentId: string;
+  let at: number;
+  if (pos === 'inside') {
+    if (t.kind !== PARENT_KIND[d.kind]) return null;
+    parentId = targetId;
+    at = t.childIds.filter((id) => id !== dragId).length;
+  } else {
+    if (t.kind !== d.kind || !t.parentId) return null;
+    parentId = t.parentId;
+    const rest = index.get(parentId)!.childIds.filter((id) => id !== dragId);
+    at = rest.indexOf(targetId) + (pos === 'after' ? 1 : 0);
+  }
+  // 同じ親で位置が変わらないなら何もしない
+  if (parentId === d.parentId && index.get(parentId)!.childIds.indexOf(dragId) === at) return null;
+  return { parentId, index: at };
+}
+
+/**
+ * 移動先の候補（同じソフトウェア内）。機能なら中分類の一覧、中分類なら大分類の一覧。
+ */
+function moveDestinations(tree: TreeNode[], index: Map<string, TreeIndexEntry>, node: TreeNode): { id: string; label: string; current: boolean }[] {
+  const self = index.get(node.id);
+  if (!self) return [];
+  const sw = tree.find((t) => t.id === self.softwareId);
+  if (!sw) return [];
+  const out: { id: string; label: string; current: boolean }[] = [];
+  for (const c1 of sw.children) {
+    if (node.kind === 'category2') {
+      out.push({ id: c1.id, label: c1.name, current: c1.id === self.parentId });
+      continue;
+    }
+    for (const c2 of c1.children) out.push({ id: c2.id, label: `${c1.name} / ${c2.name}`, current: c2.id === self.parentId });
+  }
+  return out;
 }
