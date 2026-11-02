@@ -127,8 +127,8 @@ test('自動バックアップが保存され、再読み込みで復元され�
   await openSample(page);
   // 名称を変更して 1 分進める
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
-  await page.getByRole('main').getByRole('textbox', { name: '機能の説明' }).fill('変更後の説明');
-  await page.getByRole('main').getByRole('textbox', { name: '機能の説明' }).blur();
+  await page.getByRole('complementary', { name: 'プロパティ' }).getByRole('textbox', { name: '機能の説明' }).fill('変更後の説明');
+  await page.getByRole('complementary', { name: 'プロパティ' }).getByRole('textbox', { name: '機能の説明' }).blur();
   await page.clock.runFor(61_000);
   await expect(page.getByText(/バックアップ \d\d:\d\d/)).toBeVisible();
   const index = await page.evaluate(() => localStorage.getItem('fpdfd.backup.index'));
@@ -137,7 +137,7 @@ test('自動バックアップが保存され、再読み込みで復元され�
   await page.reload();
   await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
-  await expect(page.getByRole('main').getByRole('textbox', { name: '機能の説明' })).toHaveValue('変更後の説明');
+  await expect(page.getByRole('complementary', { name: 'プロパティ' }).getByRole('textbox', { name: '機能の説明' })).toHaveValue('変更後の説明');
 });
 
 test('設定ダイアログと業者の追加', async ({ page }) => {
@@ -629,4 +629,39 @@ test('メニューから小分類を別の中分類へ、中分類を別の大�
   await c1.hover();
   await c1.getByRole('button', { name: 'その他の操作' }).click();
   await expect(page.getByRole('menuitem', { name: /移動…/ })).toHaveCount(0);
+});
+
+test('左ペインの幅を境界のドラッグで変えられ、再読み込み後も保持される', async ({ page }) => {
+  await openSample(page);
+  const tree = page.getByRole('complementary', { name: '機能ツリー' });
+  const resizer = page.getByTestId('left-pane-resizer');
+  const width = async () => Math.round((await tree.boundingBox())!.width);
+  expect(await width()).toBe(280);
+  const drag = async (dx: number) => {
+    const b = (await resizer.boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2 + dx, b.y + 200, { steps: 8 });
+    await page.mouse.up();
+  };
+  await drag(120);
+  expect(await width()).toBe(400);
+  await shot(page, '23-left-pane-wide');
+  // 最小・最大で止まる
+  await drag(-400);
+  expect(await width()).toBe(220);
+  await drag(600);
+  expect(await width()).toBe(560);
+  // 省略された機能名はマウスを重ねると全文が見える
+  await expect(page.getByTestId('tree-feature-顧客登録').locator('span[title="顧客登録"]')).toHaveCount(1);
+  // 保存され、再読み込み後も同じ幅（データは自動バックアップ前なので空に戻るが、幅は別に保持される）
+  await page.reload();
+  await expect(tree).toBeVisible();
+  expect(await width()).toBe(560);
+  // キーボード（左矢印 16px）とダブルクリック（既定幅）
+  await resizer.focus();
+  await page.keyboard.press('ArrowLeft');
+  expect(await width()).toBe(544);
+  await resizer.dblclick();
+  expect(await width()).toBe(280);
 });

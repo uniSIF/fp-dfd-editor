@@ -607,8 +607,8 @@ AppShell
 | `FeatureTree` | プロジェクト→ソフトウェア→大→中→機能の表示、選択、追加・改名（インライン編集）・削除・並べ替え（ドラッグ） | `selectFeatureTree`、`selectedFeatureId` |
 | `DfdCanvas` | React Flow のホスト。`ReactFlowProvider` で包む。パレット、Controls、MiniMap | `selectDfdView` |
 | `NodePalette` | 追加ボタン群（TF / NCP / DF / EE / 参照） | — |
-| `FunctionTable` | 選択中機能のファンクション表（DataGrid）、機能の説明、C1〜C14 編集 | `selectFeatureFunctions`、`feature` |
-| `CharacteristicsEditor` | C1〜C14 の 14 個の Select（0〜5）＋「既定値で上書き」 | `feature.characteristics` |
+| `FunctionTable` | 選択中機能のファンクション表（DataGrid）と DFD プレビュー。機能の説明・開発区分・外注業者・C1〜C14 は PropertyPanel（機能のプロパティ）で編集する | `selectFeatureFunctions` |
+| `CharacteristicsEditor` | C1〜C14 の 14 個の Select（0〜5）。PropertyPanel（機能のプロパティ）と SettingsDialog（既定値）で使う | `feature.characteristics` |
 | `SummaryTable` | 全機能の計算結果（DataGrid）＋合計行（`pinnedRows` 相当は Community 版に無いため、フッタ行を独自描画） | `selectFeatureResult` × 機能数、`selectSoftwareTotals` |
 | `FunctionLedger` | ソフトウェア内の全 DF / TF（DataGrid）。所有機能の変更、参照元機能の一覧、説明の編集、台帳 CSV 出力 [FR-ID-06] | `selectLedger` |
 | `PropertyPanel` | 選択ノード（名称・種別・複雑度・所有機能・説明・エッジラベル）または選択機能（名称・開発区分・業者・説明）の編集。説明は複数行 TextField（自動伸長、最大 6 行） | `selectedNodeIds`、`selectedEdgeId` |
@@ -955,6 +955,8 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | システム境界（FR-DF-19） | なし（要件追加） | 内部の要素（TF・非計上プロセス・ILF）の外接矩形に余白（左右 32px、上 56px、下 36px）を足した矩形。画面では React Flow の `boundary` ノード（選択・ドラッグ・フォーカス不可、`pointer-events: none`、zIndex -1）として描き、ドラッグ中のローカル位置から毎回計算する。SVG では線とノードより奥に描き、描画範囲に含める | 外部と内部の境界を一目で分かるようにするため。EIF は IFPUG の定義（他アプリケーションが維持）に従い外側 |
 | 自動整列の後処理（FR-DF-12、FR-DF-19） | dagre の結果をそのまま使い、孤立ノードを左右・下段に置く | dagre の結果に対し、未接続の内部要素を境界内の下段、外部エンティティを境界の左外（入力元）・右外（出力先だけ）、EIF を境界の下外に置き直す | dagre は出力だけのデータストアを入力側の外部エンティティと同じ列に置くことがあり、外部エンティティが境界の内側に入ってしまったため |
 | ツリーのドラッグ並べ替え（FR-CT-02） | 上下移動のメニューのみ | HTML5 のドラッグ＆ドロップで実装（`features/tree/FeatureTree.tsx` の `planDrop`）。`moveCategory` に移動先の大分類（`newParentId`）を追加し、中分類を別の大分類へ移せるようにした。`moveCategory`・`moveFeature` はソフトウェアをまたぐ移動と並びが変わらない移動を事前に判定し、履歴を積まない | データファンクションや外注業者がソフトウェア単位のため、ソフトウェア間の移動は扱わない |
+| ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
+| 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。

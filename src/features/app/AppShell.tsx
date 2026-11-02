@@ -25,6 +25,7 @@ import { openFile } from './commands';
 import { StatusBar } from './StatusBar';
 import { tokens } from './theme';
 import { Toolbar } from './Toolbar';
+import { PaneResizer, useLeftPaneWidth } from './PaneResizer';
 
 /** 自動バックアップ（FR-SV-03、FR-SV-09、design.md 8.3） */
 function useAutoBackup() {
@@ -65,6 +66,7 @@ export function AppShell() {
   useAutoBackup();
   useBeforeUnload();
   const wide = useMediaQuery('(min-width:1280px)');
+  const [leftWidth, setLeftWidth] = useLeftPaneWidth(wide ? 320 : 0);
   const [propsOpen, setPropsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backupsOpen, setBackupsOpen] = useState(false);
@@ -103,7 +105,8 @@ export function AppShell() {
         onToggleProperties={() => setPropsOpen((v) => !v)}
         showPropertiesToggle={!wide}
       />
-      <Box sx={{ flex: 1, display: 'grid', gridTemplateColumns: wide ? '280px minmax(0, 1fr) 320px' : '280px minmax(0, 1fr)', gap: '1px', minHeight: 0, background: tokens.border }}>
+      <Box sx={{ flex: 1, display: 'grid', gridTemplateColumns: wide ? `${leftWidth}px minmax(0, 1fr) 320px` : `${leftWidth}px minmax(0, 1fr)`, gap: '1px', minHeight: 0, background: tokens.border, position: 'relative' }}>
+        <PaneResizer left={leftWidth} width={leftWidth} onResize={setLeftWidth} label="機能ツリーの幅" />
         <Box component="aside" aria-label="機能ツリー" sx={{ background: tokens.surface, minHeight: 0, overflow: 'hidden' }}>
           <FeatureTree />
         </Box>

@@ -5,10 +5,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
-import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { DataGrid, type GridColDef, type GridRenderCellParams } from '@mui/x-data-grid';
@@ -19,12 +15,10 @@ import type { Complexity, DataFunctionKind, Id, NodeRefType, TransactionKind } f
 import { useStore } from '../../store';
 import { selectFeatureFunctions, selectFeatureResult, type FunctionRow } from '../../store/selectors';
 import { tokens } from '../app/theme';
-import { CommitTextField } from '../common/CommitTextField';
 import { KindBadge } from '../common/KindBadge';
 import { WarningIcon } from '../common/WarningIcon';
 import { AddFunctionDialog, type AddKind, type AddRequest } from '../dfd/AddFunctionDialog';
 import { ReferenceDialog } from '../dfd/ReferenceDialog';
-import { CharacteristicsEditor } from './CharacteristicsEditor';
 import { ConnectDialog } from './ConnectDialog';
 import { DfdPreview, usePreviewPrefs } from './DfdPreview';
 import type { EntityRef } from '../../store';
@@ -252,7 +246,6 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           sx={gridSx}
         />
       </Box>
-      <FeatureForm featureId={featureId} />
       {add && (
         <AddFunctionDialog
           featureId={featureId}
@@ -284,60 +277,3 @@ export const gridSx = {
   '& .row-selected, & .row-selected:hover': { background: tokens.primarySoft },
   '& .MuiDataGrid-cell--editable:hover': { boxShadow: `inset 0 0 0 1px ${tokens.border}` },
 };
-
-/** 機能の説明・開発区分・外注業者・システム特性（ファンクション表下部） */
-function FeatureForm({ featureId }: { featureId: Id }) {
-  const doc = useStore((s) => s.doc);
-  const feature = doc.features[featureId];
-  const softwareId = useStore((s) => s.selectedSoftwareId);
-  const result = selectFeatureResult(doc, featureId);
-  const sw = softwareId ? doc.softwares[softwareId] : null;
-  if (!feature || !sw || !result) return null;
-  const update = useStore.getState().updateFeature;
-  return (
-    <Box sx={{ borderTop: `1px solid ${tokens.border}`, p: 3, display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 4, background: tokens.surface, flex: 'none' }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SectionTitle>機能の説明</SectionTitle>
-        <CommitTextField value={feature.description} onCommit={(v) => update(featureId, { description: v })} multiline minRows={2} maxRows={4} placeholder="この機能の概要" fullWidth slotProps={{ htmlInput: { 'aria-label': '機能の説明' } }} />
-        <SectionTitle>開発区分と外注</SectionTitle>
-        <ToggleButtonGroup exclusive fullWidth size="small" value={feature.devType} onChange={(_, v) => v && update(featureId, { devType: v })} aria-label="開発区分">
-          <ToggleButton value="new">新規</ToggleButton>
-          <ToggleButton value="modification">改修</ToggleButton>
-        </ToggleButtonGroup>
-        <Select
-          value={feature.vendorId ?? ''}
-          displayEmpty
-          onChange={(e) => update(featureId, { vendorId: e.target.value || null })}
-          inputProps={{ 'aria-label': '外注業者' }}
-          sx={{ height: 28, borderColor: result.vendorMissing ? tokens.warning : undefined }}
-        >
-          <MenuItem value="" dense>外注業者を選択（未選択）</MenuItem>
-          {sw.vendorIds.map((id) => (
-            <MenuItem key={id} value={id} dense>{doc.vendors[id]?.name}</MenuItem>
-          ))}
-        </Select>
-        {result.vendorMissing && (
-          <Typography sx={{ fontSize: 12, color: tokens.warning, display: 'flex', gap: 1, alignItems: 'center' }}><WarningIcon />外注工数 {result.outsourceHours} H の業者が未選択です</Typography>
-        )}
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <SectionTitle>
-          システム特性 C1〜C14
-          <span style={{ fontWeight: 400, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis' }}>合計 {result.characteristicsSum} ・ 調整係数 {result.vaf.toFixed(2)}</span>
-          <Button variant="outlined" color="inherit" sx={{ ml: 'auto', height: 24, minHeight: 24, fontSize: 12, borderColor: tokens.borderStrong, flex: 'none' }} onClick={() => useStore.getState().resetCharacteristics(featureId)}>
-            既定値で上書き
-          </Button>
-        </SectionTitle>
-        <CharacteristicsEditor value={feature.characteristics} onChange={(v) => update(featureId, { characteristics: v })} />
-      </Box>
-    </Box>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <Box sx={{ fontSize: 12, fontWeight: 600, color: tokens.textSecondary, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', minWidth: 0, mb: 1 }}>
-      {children}
-    </Box>
-  );
-}

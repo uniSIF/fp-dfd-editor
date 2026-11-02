@@ -252,7 +252,8 @@ export function FeatureTree() {
               inputProps={{ 'aria-label': '名称' }}
             />
           ) : (
-            <Box component="span" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.name}</Box>
+            // 幅に収まらず省略されたときのため、マウスを重ねると全文を出す
+            <Box component="span" title={n.name} sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.name}</Box>
           )}
           {n.warningCount > 0 && <WarningChip count={n.warningCount} title={`警告 ${n.warningCount} 件`} />}
           <Box className="hover-actions" sx={{ gap: '2px' }}>
