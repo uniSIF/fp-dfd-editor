@@ -340,6 +340,9 @@ export function FeatureTree() {
               {menu.node.kind === 'feature' ? '別の中分類へ移動…' : '別の大分類へ移動…'}
             </MenuItem>
           ),
+          menu.node.kind === 'feature' && (
+            <MenuItem key="copyDfd" dense onClick={() => { a().openCopyDfd(menu.node.id); setMenu(null); }}>DFD を別の機能へコピー…</MenuItem>
+          ),
           <MenuItem key="del" dense sx={{ color: tokens.error }} onClick={() => { remove(menu.node); setMenu(null); }}>削除</MenuItem>,
         ]}
       </Menu>

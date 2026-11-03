@@ -12,6 +12,10 @@ import type {
   BackupSettings,
 } from '../domain/types';
 
+export type TextChange =
+  | { target: 'entity'; refType: NodeRefType; refId: Id; field: 'name' | 'description'; value: string }
+  | { target: 'edge'; featureId: Id; edgeId: Id; value: string };
+
 export interface EntityRef {
   refType: NodeRefType;
   refId: Id;
@@ -128,6 +132,19 @@ export interface DocumentSlice {
    * 図の右端に同じ外部エンティティのノードを置き、このノードへ入ってくるデータフローをそちらへ付け替える。
    */
   splitExternalEntityNode: (featureId: Id, nodeId: Id) => ActionResult;
+  /**
+   * DFD を同じソフトウェア内の別の機能へコピーする（FR-DF-20）。1 履歴。
+   * TF・非計上プロセスは複製、外部エンティティは同じものを配置、
+   * データファンクションは dataFunctions の指定に従い参照配置または複製する。
+   * 戻り値の created はコピー先で新しく作った実体（文言置換の対象にする）。
+   */
+  copyDfdToFeature: (
+    sourceFeatureId: Id,
+    targetFeatureId: Id,
+    options: { dataFunctions: 'reference' | 'duplicate' },
+  ) => { ok: true; created: EntityRef[]; edgeIds: Id[] } | { ok: false; reason: string };
+  /** 文言置換の結果をまとめて反映する（FR-FN-17）。1 履歴 */
+  applyTextReplacements: (changes: TextChange[]) => void;
   updateEdgeLabel: (featureId: Id, edgeId: Id, label: string) => void;
   removeEdges: (featureId: Id, edgeIds: Id[]) => void;
   applyLayout: (featureId: Id) => void;
@@ -151,6 +168,10 @@ export interface UiSlice {
   snackbar: SnackbarState | null;
   clipboard: Clipboard | null;
   backupAvailable: boolean;
+  /** 「DFD を別の機能へコピー」ダイアログ（FR-DF-20） */
+  copyDfd: { sourceFeatureId: Id } | null;
+  /** 「文言を置換」ダイアログ（FR-FN-17）。refIds / edgeIds があればそれだけを対象にする */
+  replaceText: { featureId: Id; refIds?: Id[]; edgeIds?: Id[] } | null;
 
   selectSoftware: (id: Id | null) => void;
   selectFeature: (id: Id | null) => void;
@@ -163,6 +184,8 @@ export interface UiSlice {
   closeSnackbar: () => void;
   setClipboard: (c: Clipboard | null) => void;
   setBackupAvailable: (v: boolean) => void;
+  openCopyDfd: (sourceFeatureId: Id | null) => void;
+  openReplaceText: (r: { featureId: Id; refIds?: Id[]; edgeIds?: Id[] } | null) => void;
 }
 
 export type AppState = DocumentSlice & UiSlice;

@@ -1,5 +1,8 @@
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import CloseIcon from '@mui/icons-material/Close';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -88,6 +91,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
   const [ref, setRef] = useState(false);
   const [connectFrom, setConnectFrom] = useState<EntityRef | null>(null);
   const [preview, setPreview] = usePreviewPrefs();
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   const selectedRow = rows.find((r) => r.nodeIds.some((id) => selectedNodeIds.includes(id)))?.rowId;
 
   const editable = (row: FunctionRow, field: string) => {
@@ -200,6 +204,13 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
         <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong, flex: 'none' }} onClick={() => setAdd({ kind: 'DF' })}>＋ データファンクション</Button>
         <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong, flex: 'none' }} onClick={() => setAdd({ kind: 'NCP' })}>＋ 非計上プロセス</Button>
         <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong, flex: 'none' }} onClick={() => setRef(true)}>既存を参照…</Button>
+        <IconButton aria-label="その他の操作（ファンクション表）" title="その他の操作" onClick={(e) => setMoreAnchor(e.currentTarget)} sx={{ flex: 'none' }}>
+          <MoreHorizIcon fontSize="small" />
+        </IconButton>
+        <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
+          <MenuItem dense onClick={() => { setMoreAnchor(null); useStore.getState().openCopyDfd(featureId); }}>DFD を別の機能へコピー…</MenuItem>
+          <MenuItem dense onClick={() => { setMoreAnchor(null); useStore.getState().openReplaceText({ featureId }); }}>文言を置換…</MenuItem>
+        </Menu>
         <Box sx={{ flex: 1 }} />
         <Button
           color="inherit"
@@ -211,7 +222,11 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           {preview.open ? 'DFD を隠す' : 'DFD を表示'}
         </Button>
         {result && (
-          <Typography sx={{ color: tokens.textSecondary, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          // 幅が足りないときは末尾から省略する（同じ値は費用サマリーと凡例でも確認できる）
+          <Typography
+            title={`未調整FP ${result.unadjustedFp} ・ 調整済FP ${result.adjustedFp}`}
+            sx={{ color: tokens.textSecondary, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto' }}
+          >
             未調整FP {result.unadjustedFp} ・ 調整済FP {result.adjustedFp}
           </Typography>
         )}

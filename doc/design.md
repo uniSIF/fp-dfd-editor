@@ -878,6 +878,8 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-12 | 6.6 |
 | FR-DF-13〜14 | 6.7 |
 | FR-DF-15 | 10 |
+| FR-DF-20 | 4.2（`copyDfdToFeature`）、`features/functions/CopyDfdDialog.tsx` |
+| FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
 | FR-DF-17、FR-SVG-06 | `domain/legend.ts`（`buildDfdLegend`、画面と SVG で共用）、`features/dfd/DfdLegend.tsx`、9.2（`renderLegend`） |
@@ -957,6 +959,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | ツリーのドラッグ並べ替え（FR-CT-02） | 上下移動のメニューのみ | HTML5 のドラッグ＆ドロップで実装（`features/tree/FeatureTree.tsx` の `planDrop`）。`moveCategory` に移動先の大分類（`newParentId`）を追加し、中分類を別の大分類へ移せるようにした。`moveCategory`・`moveFeature` はソフトウェアをまたぐ移動と並びが変わらない移動を事前に判定し、履歴を積まない | データファンクションや外注業者がソフトウェア単位のため、ソフトウェア間の移動は扱わない |
 | ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
 | 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |
+| DFD のコピーと文言置換（FR-DF-20、FR-FN-17） | なし（要件追加） | `copyDfdToFeature` は 1 回の `mutate` でノード・実体・エッジを作り、作った実体とエッジの ID を返す。データファンクションは 1 つの DFD に 1 回までなので、コピー先に配置済みなら既存ノードへつなぐ。置換の候補は `planTextReplacements`（純粋関数）で作り、`applyTextReplacements` で 1 履歴にまとめて反映する。ダイアログの開閉はツリーのメニューからも開けるよう UI スライス（`copyDfd`、`replaceText`）で持つ | 似た機能の DFD を使い回し、重複した名前をその場で直せるようにするため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。

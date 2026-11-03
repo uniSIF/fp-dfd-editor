@@ -16,6 +16,8 @@ import { DfdCanvas } from '../dfd/DfdCanvas';
 import { FunctionTable } from '../functions/FunctionTable';
 import { PropertyPanel } from '../properties/PropertyPanel';
 import { BackupDialog } from '../settings/BackupDialog';
+import { CopyDfdDialog } from '../functions/CopyDfdDialog';
+import { ReplaceTextDialog } from '../functions/ReplaceTextDialog';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { FunctionLedger } from '../summary/FunctionLedger';
 import { SummaryTable } from '../summary/SummaryTable';
@@ -76,6 +78,8 @@ export function AppShell() {
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const doc = useStore((s) => s.doc);
+  const copyDfd = useStore((s) => s.copyDfd);
+  const replaceText = useStore((s) => s.replaceText);
   const featureExists = !!featureId && !!doc.features[featureId];
   const softwareExists = !!softwareId && !!doc.softwares[softwareId];
 
@@ -132,6 +136,16 @@ export function AppShell() {
         </Drawer>
       )}
       <StatusBar onOpenSettings={() => setSettingsOpen(true)} />
+      {copyDfd && <CopyDfdDialog sourceFeatureId={copyDfd.sourceFeatureId} onClose={() => useStore.getState().openCopyDfd(null)} />}
+      {replaceText && (
+        <ReplaceTextDialog
+          key={`${replaceText.featureId}:${replaceText.refIds?.length ?? 'all'}`}
+          featureId={replaceText.featureId}
+          refIds={replaceText.refIds}
+          edgeIds={replaceText.edgeIds}
+          onClose={() => useStore.getState().openReplaceText(null)}
+        />
+      )}
       <ConfirmDialog />
       <AppSnackbar />
       {settingsOpen && softwareExists && <SettingsDialog softwareId={softwareId!} onClose={() => setSettingsOpen(false)} />}

@@ -15,6 +15,8 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
     snackbar: null,
     clipboard: null,
     backupAvailable: true,
+    copyDfd: null,
+    replaceText: null,
 
     selectSoftware: (id) =>
       set((s) => {
@@ -51,5 +53,7 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
     closeSnackbar: () => set((s) => { s.snackbar = null; }),
     setClipboard: (c) => set((s) => { s.clipboard = c; }),
     setBackupAvailable: (v) => set((s) => { s.backupAvailable = v; }),
+    openCopyDfd: (id) => set((s) => { s.copyDfd = id ? { sourceFeatureId: id } : null; }),
+    openReplaceText: (r) => set((s) => { s.replaceText = r; }),
   };
 }

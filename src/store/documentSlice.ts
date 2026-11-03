@@ -5,7 +5,7 @@ import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
 import { softwareIdOfFeature } from '../domain/queries';
 import type { DfdNode, FpDocument, Id, NodeRefType } from '../domain/types';
-import type { ActionResult, AppState, DocumentSlice, PlaceOption } from './types';
+import type { ActionResult, AppState, DocumentSlice, EntityRef, PlaceOption } from './types';
 
 export type ImmerSet = (fn: (s: AppState) => void) => void;
 export type Get = () => AppState;
@@ -450,6 +450,100 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         dfd.edges.push({ id, sourceNodeId: a.id, targetNodeId: b.id, label });
       });
       return { ok: true, id };
+    },
+    copyDfdToFeature: (sourceFeatureId, targetFeatureId, { dataFunctions }) => {
+      const doc = get().doc;
+      const source = doc.features[sourceFeatureId];
+      const target = doc.features[targetFeatureId];
+      if (!source || !target) return { ok: false, reason: '機能が見つかりません。' };
+      if (sourceFeatureId === targetFeatureId) return { ok: false, reason: '同じ機能にはコピーできません。' };
+      const swId = softwareIdOfFeature(doc, sourceFeatureId);
+      if (!swId || swId !== softwareIdOfFeature(doc, targetFeatureId)) {
+        return { ok: false, reason: '別のソフトウェアの機能へはコピーできません。' };
+      }
+      if (!source.dfd.nodes.length) return { ok: false, reason: 'コピー元の DFD にノードがありません。' };
+      const created: EntityRef[] = [];
+      const edgeIds: Id[] = [];
+      mutate((d) => {
+        const src = d.features[sourceFeatureId].dfd;
+        const dst = d.features[targetFeatureId].dfd;
+        // コピー先に既存のノードがあれば、その右側に並べる
+        const srcMinX = Math.min(...src.nodes.map((n) => n.x));
+        const srcMinY = Math.min(...src.nodes.map((n) => n.y));
+        const dx = dst.nodes.length ? Math.max(...dst.nodes.map((n) => n.x + nodeSize(n.refType).width)) + 160 - srcMinX : 0;
+        const dy = dst.nodes.length ? Math.min(...dst.nodes.map((n) => n.y)) - srcMinY : 0;
+        const nodeMap = new Map<Id, Id>();
+        /** 複製したデータファンクション（同じ元から 1 つだけ作る） */
+        const dfCopies = new Map<Id, Id>();
+        for (const n of src.nodes) {
+          let refId = n.refId;
+          if (n.refType === 'transactionFunction') {
+            const t = d.transactionFunctions[n.refId];
+            if (!t) continue;
+            refId = newId();
+            d.transactionFunctions[refId] = { ...t, id: refId, featureId: targetFeatureId, displayNo: nextDisplayNo(d, swId, 'TF') };
+            created.push({ refType: 'transactionFunction', refId });
+          } else if (n.refType === 'nonCountedProcess') {
+            const p = d.nonCountedProcesses[n.refId];
+            if (!p) continue;
+            refId = newId();
+            d.nonCountedProcesses[refId] = { ...p, id: refId, featureId: targetFeatureId };
+            created.push({ refType: 'nonCountedProcess', refId });
+          } else if (n.refType === 'dataFunction') {
+            const df = d.dataFunctions[n.refId];
+            if (!df) continue;
+            // コピー元が所有するものだけ、指定に応じて複製する。他機能所有のものは参照のまま
+            if (dataFunctions === 'duplicate' && df.ownerFeatureId === sourceFeatureId) {
+              refId = dfCopies.get(df.id) ?? newId();
+              if (!dfCopies.has(df.id)) {
+                dfCopies.set(df.id, refId);
+                d.dataFunctions[refId] = { ...df, id: refId, ownerFeatureId: targetFeatureId, displayNo: nextDisplayNo(d, swId, 'DF') };
+                created.push({ refType: 'dataFunction', refId });
+              }
+            }
+            // データファンクションは 1 つの DFD に 1 回まで。配置済みなら既存ノードにつなぐ
+            const existing = dst.nodes.find((m) => m.refType === 'dataFunction' && m.refId === refId);
+            if (existing) {
+              nodeMap.set(n.id, existing.id);
+              continue;
+            }
+          } else if (!d.externalEntities[n.refId]) {
+            continue;
+          }
+          const id = newId();
+          nodeMap.set(n.id, id);
+          dst.nodes.push({ id, refType: n.refType, refId, x: n.x + dx, y: n.y + dy });
+        }
+        for (const e of src.edges) {
+          const a = nodeMap.get(e.sourceNodeId);
+          const b = nodeMap.get(e.targetNodeId);
+          if (!a || !b) continue;
+          const id = newId();
+          dst.edges.push({ id, sourceNodeId: a, targetNodeId: b, label: e.label });
+          edgeIds.push(id);
+        }
+      });
+      return { ok: true, created, edgeIds };
+    },
+    applyTextReplacements: (changes) => {
+      if (!changes.length) return;
+      mutate((d) => {
+        for (const c of changes) {
+          if (c.target === 'edge') {
+            const e = d.features[c.featureId]?.dfd.edges.find((x) => x.id === c.edgeId);
+            if (e) e.label = c.value;
+            continue;
+          }
+          const table = {
+            dataFunction: d.dataFunctions,
+            transactionFunction: d.transactionFunctions,
+            nonCountedProcess: d.nonCountedProcesses,
+            externalEntity: d.externalEntities,
+          }[c.refType] as Record<Id, { name: string; description: string }>;
+          const entity = table[c.refId];
+          if (entity) entity[c.field] = c.value;
+        }
+      });
     },
     splitExternalEntityNode: (featureId, nodeId) => {
       const dfd = get().doc.features[featureId]?.dfd;

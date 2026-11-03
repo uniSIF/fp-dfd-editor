@@ -229,4 +229,78 @@ describe('store', () => {
     store.getState().moveCategory('c1a', 0);
     expect(store.temporal.getState().pastStates.length).toBe(before);
   });
+
+  it('copyDfdToFeature: TF は複製、DF は参照、外部エンティティは同じものを配置する（FR-DF-20）', () => {
+    const store = setup();
+    const r = store.getState().copyDfdToFeature('fReg', 'fSearch', { dataFunctions: 'reference' });
+    expect(r.ok).toBe(true);
+    const doc = store.getState().doc;
+    const dfd = doc.features.fSearch.dfd;
+    expect(dfd.nodes).toHaveLength(6);
+    expect(dfd.edges).toHaveLength(7);
+    // TF 3 件が新しい番号で fSearch に属する
+    const tfs = Object.values(doc.transactionFunctions).filter((t) => t.featureId === 'fSearch');
+    expect(tfs.map((t) => t.name).sort()).toEqual(['登録完了通知', '顧客検索', '顧客照会', '顧客登録入力', '顧客詳細照会'].sort());
+    expect(tfs.find((t) => t.name === '顧客登録入力')!.displayNo).toBe('TF-007');
+    // DF は参照（新しい DF を作らない）、外部エンティティは同じ実体
+    expect(Object.keys(doc.dataFunctions)).toHaveLength(2);
+    expect(dfd.nodes.filter((n) => n.refType === 'dataFunction').map((n) => n.refId).sort()).toEqual(['df1', 'df2']);
+    expect(dfd.nodes.find((n) => n.refType === 'externalEntity')!.refId).toBe('ee1');
+    expect(r.ok && r.created).toHaveLength(3);
+    // 1 回の Undo で戻る
+    expect(store.temporal.getState().pastStates).toHaveLength(1);
+    undo(store);
+    expect(store.getState().doc.features.fSearch.dfd.nodes).toHaveLength(0);
+  });
+
+  it('copyDfdToFeature: DF を複製するとコピー先が所有し、他機能所有の DF は参照のまま', () => {
+    const store = setup();
+    const r = store.getState().copyDfdToFeature('fReg', 'fSearch', { dataFunctions: 'duplicate' });
+    const doc = store.getState().doc;
+    const owned = Object.values(doc.dataFunctions).filter((d) => d.ownerFeatureId === 'fSearch');
+    expect(owned.map((d) => [d.name, d.displayNo])).toEqual([['顧客マスタ', 'DF-003']]);
+    // 商品マスタ（所有: 商品登録）は参照のまま
+    expect(doc.features.fSearch.dfd.nodes.some((n) => n.refId === 'df2')).toBe(true);
+    expect(r.ok && r.created.filter((c) => c.refType === 'dataFunction')).toHaveLength(1);
+  });
+
+  it('copyDfdToFeature: 既存ノードの右側に置き、別ソフトウェア・同じ機能・空の DFD は拒否する', () => {
+    const store = setup();
+    store.getState().copyDfdToFeature('fReg', 'fItem', { dataFunctions: 'reference' });
+    const nodes = store.getState().doc.features.fItem.dfd.nodes;
+    // 商品マスタは既に fItem に配置済みなので増やさない（1 + 5）
+    expect(nodes).toHaveLength(6);
+    const original = nodes.find((n) => n.id === 'm1')!;
+    expect(Math.min(...nodes.filter((n) => n.id !== 'm1').map((n) => n.x))).toBeGreaterThan(original.x + 180);
+    expect(store.getState().copyDfdToFeature('fReg', 'fReg', { dataFunctions: 'reference' }).ok).toBe(false);
+    expect(store.getState().copyDfdToFeature('fSearch', 'fReg', { dataFunctions: 'reference' }).ok).toBe(false);
+  });
+
+  it('文言置換: 候補を作り、1 履歴で反映する（FR-FN-17）', async () => {
+    const { planTextReplacements } = await import('../domain/textReplace');
+    const store = setup();
+    const r = store.getState().copyDfdToFeature('fReg', 'fSearch', { dataFunctions: 'reference' });
+    const scope = r.ok ? { refIds: new Set(r.created.map((c) => c.refId)), edgeIds: new Set(r.edgeIds) } : undefined;
+    const doc = store.getState().doc;
+    const plan = planTextReplacements(doc, 'fSearch', '登録', '変更', { name: true, description: true, edgeLabels: true }, scope);
+    // コピーで作ったものだけ（元からある「顧客照会」などは含まない）
+    expect(plan.map((p) => [p.field, p.before, p.after])).toEqual(expect.arrayContaining([
+      ['name', '顧客登録入力', '顧客変更入力'],
+      ['name', '登録完了通知', '変更完了通知'],
+      ['label', '登録情報', '変更情報'],
+    ]));
+    expect(plan.every((p) => p.after.indexOf('登録') === -1)).toBe(true);
+    // 外部エンティティ・参照 DF は対象外
+    expect(planTextReplacements(doc, 'fReg', '利用者', 'x', { name: true, description: false, edgeLabels: false })).toEqual([]);
+    store.getState().applyTextReplacements(plan.map((p) =>
+      p.target === 'edge'
+        ? { target: 'edge' as const, featureId: 'fSearch', edgeId: p.edgeId!, value: p.after }
+        : { target: 'entity' as const, refType: p.refType!, refId: p.refId!, field: p.field as 'name' | 'description', value: p.after }));
+    const names = Object.values(store.getState().doc.transactionFunctions).filter((t) => t.featureId === 'fSearch').map((t) => t.name);
+    expect(names).toContain('顧客変更入力');
+    // コピー元は変わらない
+    expect(store.getState().doc.transactionFunctions.tf1.name).toBe('顧客登録入力');
+    undo(store);
+    expect(Object.values(store.getState().doc.transactionFunctions).filter((t) => t.featureId === 'fSearch').map((t) => t.name)).toContain('顧客登録入力');
+  });
 });

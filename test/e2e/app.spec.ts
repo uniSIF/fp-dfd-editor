@@ -665,3 +665,59 @@ test('左ペインの幅を境界のドラッグで変えられ、再読み込�
   await resizer.dblclick();
   expect(await width()).toBe(280);
 });
+
+test('DFD を別の機能へコピーし、続けて文言を置換できる（FR-DF-20、FR-FN-17）', async ({ page }) => {
+  await openSample(page);
+  // ツリーのメニューからコピー
+  const row = page.getByTestId('tree-feature-顧客登録');
+  await row.hover();
+  await row.getByRole('button', { name: 'その他の操作' }).click();
+  await page.getByRole('menuitem', { name: 'DFD を別の機能へコピー…' }).click();
+  let dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('「顧客登録」の DFD を別の機能へコピー')).toBeVisible();
+  await dialog.getByRole('option', { name: '顧客検索' }).click();
+  await expect(dialog.getByRole('radio', { name: /参照として配置/ })).toBeChecked();
+  await shot(page, '24-copy-dfd');
+  await dialog.getByRole('button', { name: 'コピー', exact: true }).click();
+
+  // コピー先が選ばれ、コピーしたものだけを対象に置換ダイアログが開く
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('文言を置換（顧客検索）')).toBeVisible();
+  await expect(dialog.getByText('DFD のコピーで追加したファンクションとデータフローだけが対象です。')).toBeVisible();
+  await page.keyboard.type('登録');
+  await dialog.getByLabel('置換後の文字列').fill('変更');
+  const items = dialog.getByRole('listitem');
+  // 名称 2 件（顧客登録入力・登録完了通知）、ラベル 2 件（登録情報・登録結果）
+  await expect(items).toHaveCount(4);
+  await shot(page, '25-replace-dialog');
+  // ラベル「登録結果」は置換しない
+  await dialog.getByRole('checkbox', { name: '登録結果 を置換する' }).uncheck();
+  await dialog.getByRole('button', { name: '3 件を置換' }).click();
+
+  // 結果: コピー先の名前が変わり、コピー元は変わらない
+  await expect(page.getByRole('tree').getByTestId('tree-feature-顧客検索')).toBeVisible();
+  const grid = page.getByRole('grid');
+  await expect(grid.getByRole('gridcell', { name: '顧客変更入力', exact: true })).toBeVisible();
+  await expect(grid.getByRole('gridcell', { name: '変更完了通知', exact: true })).toBeVisible();
+  // DF は参照としてコピー（顧客マスタは「参照」行）
+  await expect(page.getByRole('row').filter({ hasText: 'DF-001' })).toContainText('参照');
+  await page.getByRole('tab', { name: 'DFD' }).click();
+  await expect(page.locator(NODE)).toHaveCount(6);
+  await expect(page.getByText('変更情報')).toBeVisible();
+  await expect(page.getByText('登録結果')).toBeVisible();
+  // 凡例: 元の EQ 2 件 + コピーの EI・EO・EQ（顧客検索）
+  await expect(page.getByTestId('dfd-legend')).toContainText('合計 5 件');
+  // コピー元は変わらない
+  await page.getByTestId('tree-feature-顧客登録').click();
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  await expect(page.getByRole('grid').getByRole('gridcell', { name: '顧客登録入力', exact: true })).toBeVisible();
+
+  // ファンクション表のメニューから、この機能すべてを対象に置換
+  await page.getByRole('button', { name: 'その他の操作（ファンクション表）' }).click();
+  await page.getByRole('menuitem', { name: '文言を置換…' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('DFD のコピーで追加した')).toHaveCount(0);
+  await dialog.getByLabel('検索する文字列').fill('利用者');
+  await expect(dialog.getByText('0 件が見つかりました。')).toBeVisible(); // 外部エンティティは対象外
+  await dialog.getByRole('button', { name: '閉じる' }).click();
+});
