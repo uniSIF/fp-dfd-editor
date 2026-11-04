@@ -655,6 +655,71 @@ test('DFD で要素をダブルクリックするとプロパティパネルの�
   await expect(page.getByRole('textbox', { name: 'ラベル' })).toHaveValue('検索条件');
 });
 
+test('ファンクション表でドラッグして変えた列幅は、行を選んでも・タブを切り替えても保たれる', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  const header = page.locator('[role="columnheader"][data-field="kind"]');
+  const widthOf = async () => (await header.boundingBox())!.width;
+  const before = await widthOf();
+  const sep = header.locator('.MuiDataGrid-columnSeparator');
+  const box = (await sep.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  const resized = await widthOf();
+  expect(resized).toBeGreaterThan(before + 40);
+  // 別の行をクリックして選択する
+  await page.getByRole('row').filter({ hasText: '顧客検索' }).locator('[data-field="displayNo"]').click();
+  await page.getByRole('row').filter({ hasText: '登録完了通知' }).locator('[data-field="displayNo"]').click();
+  await expect(page.locator('.row-selected')).toContainText('登録完了通知');
+  expect(Math.abs((await widthOf()) - resized)).toBeLessThan(2);
+  // タブを切り替えて戻っても保たれる
+  await page.getByRole('tab', { name: 'DFD' }).click();
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  expect(Math.abs((await widthOf()) - resized)).toBeLessThan(2);
+});
+
+test('ファンクション表で複数選んで、文言を置換しながら一括コピーできる（FR-FN-18）', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  for (const t of ['利用者', '顧客登録入力', '顧客マスタ', '登録完了通知']) {
+    await page.getByRole('row').filter({ hasText: t }).getByRole('checkbox').first().check();
+  }
+  await page.getByRole('button', { name: '選択した 4 件をコピー…' }).click();
+  const dialog = page.getByRole('dialog');
+  await page.getByLabel('置換する文字列').fill('顧客');
+  await page.getByLabel('置換後の文字列').fill('取引先');
+  const items = dialog.getByRole('listitem');
+  await expect(items.filter({ hasText: 'TF-001' })).toContainText(/→\s*取引先登録入力/);
+  await expect(items.filter({ hasText: 'TF-002' })).toContainText('同じ名称あり');
+  await expect(items.filter({ hasText: 'EE-001' })).toContainText('共有のまま使う');
+  await shot(page, '23-copy-functions');
+  await dialog.getByRole('button', { name: 'コピー', exact: true }).click();
+  await expect(page.getByText('4 件をコピーしました（新しく作成 3 件・データフロー 4 本）')).toBeVisible();
+  // コピーした行が表に増え、チェックは外れている
+  await expect(page.getByRole('row').filter({ hasText: '取引先登録入力' })).toHaveCount(1);
+  await expect(page.getByRole('row').filter({ hasText: '取引先マスタ' })).toHaveCount(1);
+  await expect(page.getByRole('row').filter({ hasText: '登録完了通知' })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /選択した .* 件をコピー/ })).toHaveCount(0);
+  await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
+  // 1 回の Undo で戻る
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByRole('row').filter({ hasText: '取引先登録入力' })).toHaveCount(0);
+  await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
+
+  // 別の機能へのコピー
+  await page.getByRole('row').filter({ hasText: '顧客検索' }).getByRole('checkbox').first().check();
+  await page.getByRole('button', { name: '選択した 1 件をコピー…' }).click();
+  await page.getByRole('combobox', { name: 'コピー先の機能' }).click();
+  await page.getByRole('option', { name: /商品登録/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'コピー', exact: true }).click();
+  // コピー先の機能に切り替わり、その表に行が増える
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __store: { getState: () => { selectedFeatureId: string } } }).__store.getState().selectedFeatureId)).toBe('fItem');
+  await expect(page.getByRole('row').filter({ hasText: '顧客検索' })).toHaveCount(1);
+  await expect(page.getByRole('row').filter({ hasText: '商品マスタ' })).toHaveCount(1);
+});
+
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
   await openSample(page);
   await page.locator('.react-flow__node[data-id="n1"]').click(); // 利用者

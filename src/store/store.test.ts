@@ -364,4 +364,62 @@ describe('store', () => {
     expect(s.replaceWithReference({ featureId: 'fReg', nodeId: 'n1', toRefId: 'df1', scope: 'all', removeOriginal: true }).ok).toBe(false);
     expect(s.replaceWithReference({ featureId: 'fReg', nodeId: 'n2', toRefId: 'tf2', scope: 'all', removeOriginal: true }).ok).toBe(false);
   });
+  const noReplace = { find: '', replace: '', name: true, description: false, edgeLabels: true };
+
+  it('copyFunctions: 同じ機能へ選んだ要素を文言を置換して複製し、データフローも再現する（FR-FN-18）', () => {
+    const store = setup();
+    const r = store.getState().copyFunctions({
+      sourceFeatureId: 'fReg', targetFeatureId: 'fReg', includeEdges: true,
+      refs: [{ refType: 'externalEntity', refId: 'ee1' }, { refType: 'transactionFunction', refId: 'tf1' }, { refType: 'dataFunction', refId: 'df1' }],
+      replace: { find: '顧客', replace: '取引先', name: true, description: false, edgeLabels: true },
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const doc = store.getState().doc;
+    // TF と所有 DF は新しい番号で複製、外部エンティティは共有のまま
+    expect(r.created.map((c) => c.refType).sort()).toEqual(['dataFunction', 'transactionFunction']);
+    const tf = doc.transactionFunctions[r.created.find((c) => c.refType === 'transactionFunction')!.refId];
+    expect(tf).toMatchObject({ name: '取引先登録入力', kind: 'EI', complexity: 'medium', featureId: 'fReg', displayNo: 'TF-007' });
+    expect(tf.description).toBe(doc.transactionFunctions.tf1.description);
+    const df = doc.dataFunctions[r.created.find((c) => c.refType === 'dataFunction')!.refId];
+    expect(df).toMatchObject({ name: '取引先マスタ', ownerFeatureId: 'fReg', displayNo: 'DF-003' });
+    expect(doc.externalEntities.ee1.name).toBe('利用者');
+    // 新しいノードは 2 つ（外部エンティティは既存ノード n1 を使う）
+    const dfd = doc.features.fReg.dfd;
+    expect(r.nodeIds).toHaveLength(2);
+    const tfNode = dfd.nodes.find((n) => n.refId === tf.id)!;
+    const dfNode = dfd.nodes.find((n) => n.refId === df.id)!;
+    // n1 → n2「登録情報」、n2 → n5「顧客データ」が新しいノードの間に再現される
+    expect(dfd.edges.some((e) => e.sourceNodeId === 'n1' && e.targetNodeId === tfNode.id && e.label === '登録情報')).toBe(true);
+    expect(dfd.edges.some((e) => e.sourceNodeId === tfNode.id && e.targetNodeId === dfNode.id && e.label === '取引先データ')).toBe(true);
+    expect(r.edgeIds).toHaveLength(2);
+    // 元の要素は変わらない。1 回の Undo で戻る
+    expect(doc.transactionFunctions.tf1.name).toBe('顧客登録入力');
+    undo(store);
+    expect(store.getState().doc.transactionFunctions[tf.id]).toBeUndefined();
+    expect(store.getState().doc.features.fReg.dfd.nodes).toHaveLength(6);
+  });
+
+  it('copyFunctions: 別の機能へコピーすると共有の要素はコピー先に置き、他機能所有の DF は参照のまま', () => {
+    const store = setup();
+    const r = store.getState().copyFunctions({
+      sourceFeatureId: 'fReg', targetFeatureId: 'fSearch', includeEdges: false,
+      refs: [{ refType: 'externalEntity', refId: 'ee1' }, { refType: 'dataFunction', refId: 'df2' }, { refType: 'transactionFunction', refId: 'tf3' }],
+      replace: noReplace,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const doc = store.getState().doc;
+    expect(r.created).toHaveLength(1);
+    expect(doc.dataFunctions.df2.ownerFeatureId).toBe('fItem');
+    const refIds = doc.features.fSearch.dfd.nodes.map((n) => n.refId);
+    expect(refIds).toContain('ee1');
+    expect(refIds).toContain('df2');
+    expect(refIds).toContain(r.created[0].refId);
+    expect(doc.features.fSearch.dfd.edges).toHaveLength(0);
+  });
+
+  it('copyFunctions: 別のソフトウェア・空の選択は拒否する', () => {
+    const store = setup();
+    expect(store.getState().copyFunctions({ sourceFeatureId: 'fReg', targetFeatureId: 'fReg', refs: [], includeEdges: true, replace: noReplace }).ok).toBe(false);
+    expect(store.getState().copyFunctions({ sourceFeatureId: 'fReg', targetFeatureId: 'nope', refs: [{ refType: 'transactionFunction', refId: 'tf1' }], includeEdges: true, replace: noReplace }).ok).toBe(false);
+  });
 });

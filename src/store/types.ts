@@ -1,3 +1,4 @@
+import type { ReplaceOptions } from '../domain/textReplace';
 import type {
   Complexity,
   DataFunctionKind,
@@ -156,6 +157,20 @@ export interface DocumentSlice {
     targetFeatureId: Id,
     options: { dataFunctions: 'reference' | 'duplicate' },
   ) => { ok: true; created: EntityRef[]; edgeIds: Id[] } | { ok: false; reason: string };
+  /**
+   * ファンクション表で選んだ要素をまとめてコピーする（FR-FN-18）。1 履歴。
+   * TF・非計上プロセスとコピー元が所有する DF は新しい番号で複製し、文言を置換してコピー先に属させる。
+   * 外部エンティティと他機能所有の DF は共有なので複製せず、コピー先の DFD の既存ノード（なければ新しいノード）を使う。
+   * includeEdges なら、選んだ要素どうしをつなぐデータフローも（複製した要素につながるものだけ）再現する。
+   * 戻り値の nodeIds はコピーで新しく置いたノード。
+   */
+  copyFunctions: (p: {
+    sourceFeatureId: Id;
+    targetFeatureId: Id;
+    refs: EntityRef[];
+    includeEdges: boolean;
+    replace: { find: string; replace: string } & ReplaceOptions;
+  }) => { ok: true; created: EntityRef[]; nodeIds: Id[]; edgeIds: Id[] } | { ok: false; reason: string };
   /** 文言置換の結果をまとめて反映する（FR-FN-17）。1 履歴 */
   applyTextReplacements: (changes: TextChange[]) => void;
   updateEdgeLabel: (featureId: Id, edgeId: Id, label: string) => void;

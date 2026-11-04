@@ -4,6 +4,7 @@ import { findFreePosition, nodeSize } from '../domain/dfdGeometry';
 import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
 import { softwareIdOfFeature } from '../domain/queries';
+import { replaceText } from '../domain/textReplace';
 import type { DfdNode, FpDocument, Id, NodeRefType } from '../domain/types';
 import type { ActionResult, AppState, DocumentSlice, EntityRef, PlaceOption } from './types';
 
@@ -524,6 +525,110 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         }
       });
       return { ok: true, created, edgeIds };
+    },
+    copyFunctions: ({ sourceFeatureId, targetFeatureId, refs, includeEdges, replace }) => {
+      const doc = get().doc;
+      if (!doc.features[sourceFeatureId] || !doc.features[targetFeatureId]) return { ok: false, reason: '機能が見つかりません。' };
+      const swId = softwareIdOfFeature(doc, sourceFeatureId);
+      if (!swId || swId !== softwareIdOfFeature(doc, targetFeatureId)) {
+        return { ok: false, reason: '別のソフトウェアの機能へはコピーできません。' };
+      }
+      if (!refs.length) return { ok: false, reason: 'コピーするファンクションを選んでください。' };
+      const rep = (text: string, on: boolean) => (on ? replaceText(text, replace.find, replace.replace) : text);
+      const created: EntityRef[] = [];
+      const nodeIds: Id[] = [];
+      const edgeIds: Id[] = [];
+      mutate((d) => {
+        const src = d.features[sourceFeatureId].dfd;
+        const dst = d.features[targetFeatureId].dfd;
+        const key = (r: EntityRef) => `${r.refType}:${r.refId}`;
+        const selected = new Set(refs.map(key));
+        const srcNodes = src.nodes.filter((n) => selected.has(key(n)));
+        // コピー元の並びを保ったまま、コピー先の既存ノードの右側に置く
+        const dx = srcNodes.length && dst.nodes.length
+          ? Math.max(...dst.nodes.map((n) => n.x + nodeSize(n.refType).width)) + 160 - Math.min(...srcNodes.map((n) => n.x))
+          : 0;
+        const dy = srcNodes.length && dst.nodes.length ? Math.min(...dst.nodes.map((n) => n.y)) - Math.min(...srcNodes.map((n) => n.y)) : 0;
+
+        /** コピー元の実体 → コピー先で使う実体（複製したものは新しい ID） */
+        const refMap = new Map<string, EntityRef & { isNew: boolean }>();
+        for (const r of refs) {
+          let to: EntityRef & { isNew: boolean };
+          if (r.refType === 'transactionFunction') {
+            const t = d.transactionFunctions[r.refId];
+            if (!t) continue;
+            const id = newId();
+            d.transactionFunctions[id] = {
+              ...t, id, featureId: targetFeatureId, displayNo: nextDisplayNo(d, swId, 'TF'),
+              name: rep(t.name, replace.name), description: rep(t.description, replace.description),
+            };
+            to = { refType: r.refType, refId: id, isNew: true };
+          } else if (r.refType === 'nonCountedProcess') {
+            const p = d.nonCountedProcesses[r.refId];
+            if (!p) continue;
+            const id = newId();
+            d.nonCountedProcesses[id] = { ...p, id, featureId: targetFeatureId, name: rep(p.name, replace.name), description: rep(p.description, replace.description) };
+            to = { refType: r.refType, refId: id, isNew: true };
+          } else if (r.refType === 'dataFunction') {
+            const df = d.dataFunctions[r.refId];
+            if (!df) continue;
+            if (df.ownerFeatureId === sourceFeatureId) {
+              const id = newId();
+              d.dataFunctions[id] = {
+                ...df, id, ownerFeatureId: targetFeatureId, displayNo: nextDisplayNo(d, swId, 'DF'),
+                name: rep(df.name, replace.name), description: rep(df.description, replace.description),
+              };
+              to = { refType: r.refType, refId: id, isNew: true };
+            } else {
+              to = { ...r, isNew: false };
+            }
+          } else {
+            if (!d.externalEntities[r.refId]) continue;
+            to = { ...r, isNew: false };
+          }
+          refMap.set(key(r), to);
+          if (to.isNew) created.push({ refType: to.refType, refId: to.refId });
+        }
+
+        const place = (refType: NodeRefType, refId: Id, at?: { x: number; y: number }) => {
+          const id = newId();
+          const pos = at ?? findFreePosition(dst.nodes, refType);
+          dst.nodes.push({ id, refType, refId, x: pos.x, y: pos.y });
+          nodeIds.push(id);
+          return id;
+        };
+        /** コピー元ノード → コピー先ノード */
+        const nodeMap = new Map<Id, Id>();
+        for (const n of srcNodes) {
+          const to = refMap.get(key(n));
+          if (!to) continue;
+          if (!to.isNew) {
+            // 共有の要素は、コピー先に置いてあるノードを使う（同じ機能へのコピーならそのノード自身）
+            const existing = sourceFeatureId === targetFeatureId ? n : dst.nodes.find((m) => m.refType === to.refType && m.refId === to.refId);
+            nodeMap.set(n.id, existing ? existing.id : place(to.refType, to.refId, { x: n.x + dx, y: n.y + dy }));
+            continue;
+          }
+          nodeMap.set(n.id, place(to.refType, to.refId, { x: n.x + dx, y: n.y + dy }));
+        }
+        // DFD に置いていなかった要素も、コピー先では空いている位置に置く
+        for (const [k, to] of refMap) {
+          if (srcNodes.some((n) => key(n) === k)) continue;
+          if (!dst.nodes.some((m) => m.refType === to.refType && m.refId === to.refId)) place(to.refType, to.refId);
+        }
+        if (!includeEdges) return;
+        const newNodes = new Set(nodeIds);
+        for (const e of src.edges) {
+          const a = nodeMap.get(e.sourceNodeId);
+          const b = nodeMap.get(e.targetNodeId);
+          // 共有の要素どうしの線は、同じ機能へのコピーで二重になるため作らない
+          if (!a || !b || (!newNodes.has(a) && !newNodes.has(b) && sourceFeatureId === targetFeatureId)) continue;
+          if (dst.edges.some((x) => x.sourceNodeId === a && x.targetNodeId === b && x.label === rep(e.label, replace.edgeLabels))) continue;
+          const id = newId();
+          dst.edges.push({ id, sourceNodeId: a, targetNodeId: b, label: rep(e.label, replace.edgeLabels) });
+          edgeIds.push(id);
+        }
+      });
+      return { ok: true, created, nodeIds, edgeIds };
     },
     applyTextReplacements: (changes) => {
       if (!changes.length) return;

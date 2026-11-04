@@ -19,7 +19,7 @@ import { ellipsis } from '../common/ellipsis';
 const FIELD_LABELS = { name: '名称', description: '説明', label: 'ラベル' } as const;
 
 /** 検索語を強調して表示する */
-function Highlight({ text, word, color }: { text: string; word: string; color: string }) {
+export function Highlight({ text, word, color }: { text: string; word: string; color: string }) {
   if (!word) return <>{text}</>;
   const parts = text.split(word);
   return (

@@ -9,6 +9,11 @@ export interface ReplaceOptions {
   edgeLabels: boolean;
 }
 
+/** text 中の find をすべて replace に置き換える。find が空なら何もしない */
+export function replaceText(text: string, find: string, replace: string): string {
+  return find ? text.split(find).join(replace) : text;
+}
+
 export interface ReplaceCandidate {
   /** 行の一意キー */
   key: string;

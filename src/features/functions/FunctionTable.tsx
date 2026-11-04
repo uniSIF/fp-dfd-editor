@@ -10,7 +10,7 @@ import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { DataGrid, GridEditSingleSelectCell, useGridApiContext, type GridColDef, type GridRenderCellParams, type GridRenderEditCellParams } from '@mui/x-data-grid';
+import { DataGrid, GridEditSingleSelectCell, useGridApiContext, type GridColDef, type GridRowSelectionModel, type GridRenderCellParams, type GridRenderEditCellParams } from '@mui/x-data-grid';
 import { useState } from 'react';
 import { nodeSize } from '../../domain/dfdGeometry';
 import { COMPLEXITIES, COMPLEXITY_LABELS } from '../../domain/fpTables';
@@ -23,6 +23,7 @@ import { WarningIcon } from '../common/WarningIcon';
 import { AddFunctionDialog, type AddKind, type AddRequest } from '../dfd/AddFunctionDialog';
 import { ReferenceDialog } from '../dfd/ReferenceDialog';
 import { ConnectDialog } from './ConnectDialog';
+import { CopyFunctionsDialog } from './CopyFunctionsDialog';
 import { DfdPreview, usePreviewPrefs } from './DfdPreview';
 import type { EntityRef } from '../../store';
 
@@ -94,6 +95,38 @@ function SelectEditCell(params: GridRenderEditCellParams<FunctionRow>) {
 
 const kindOptions = (row: FunctionRow) => (row.refType === 'dataFunction' ? ['ILF', 'EIF'] : ['EI', 'EO', 'EQ']);
 
+const WIDTHS_KEY = 'fpdfd.ui.functionColumnWidths';
+
+/**
+ * ドラッグで変えた列幅。列定義は描画のたびに作り直すため、ここで持たないと行の選択などの再描画で既定幅に戻る。
+ * このブラウザだけの利便設定として保存する（保存ファイル・履歴の対象外）
+ */
+function useColumnWidths() {
+  const [widths, setWidths] = useState<Record<string, number>>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(WIDTHS_KEY) ?? '');
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([, w]) => typeof w === 'number' && w > 0)) as Record<string, number>;
+    } catch {
+      // 未保存・破損時は既定幅
+    }
+    return {};
+  });
+  const setWidth = (field: string, width: number) =>
+    setWidths((cur) => {
+      const next = { ...cur, [field]: Math.round(width) };
+      try {
+        localStorage.setItem(WIDTHS_KEY, JSON.stringify(next));
+      } catch {
+        // 保存できなくても表示には影響しない
+      }
+      return next;
+    });
+  /** 幅を変えた列は flex をやめて固定幅にする */
+  const apply = <T extends GridColDef<FunctionRow>>(cols: T[]): T[] =>
+    cols.map((c) => (widths[c.field] ? { ...c, width: widths[c.field], flex: undefined } : c));
+  return { apply, setWidth };
+}
+
 /** ファンクション表タブ（FR-FN-01〜12、design.md 7.3） */
 export function FunctionTable({ featureId }: { featureId: Id }) {
   const doc = useStore((s) => s.doc);
@@ -105,6 +138,12 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
   const [connectFrom, setConnectFrom] = useState<EntityRef | null>(null);
   const [preview, setPreview] = usePreviewPrefs();
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  const columnWidths = useColumnWidths();
+  // チェックボックスで選んだ行（一括コピー、FR-FN-18）。機能を切り替えたら選択は外す
+  const [checked, setChecked] = useState<{ featureId: Id; model: GridRowSelectionModel }>({ featureId, model: { type: 'include', ids: new Set() } });
+  const model: GridRowSelectionModel = checked.featureId === featureId ? checked.model : { type: 'include', ids: new Set() };
+  const checkedRows = rows.filter((r) => (model.type === 'include' ? model.ids.has(r.rowId) : !model.ids.has(r.rowId)));
+  const [copying, setCopying] = useState(false);
   const selectedRow = rows.find((r) => r.nodeIds.some((id) => selectedNodeIds.includes(id)))?.rowId;
 
   const editable = (row: FunctionRow, field: string) => {
@@ -225,7 +264,13 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
         <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
           <MenuItem dense onClick={() => { setMoreAnchor(null); useStore.getState().openCopyDfd(featureId); }}>DFD を別の機能へコピー…</MenuItem>
           <MenuItem dense onClick={() => { setMoreAnchor(null); useStore.getState().openReplaceText({ featureId }); }}>文言を置換…</MenuItem>
+          <MenuItem dense disabled={!checkedRows.length} onClick={() => { setMoreAnchor(null); setCopying(true); }}>
+            {checkedRows.length ? `選択した ${checkedRows.length} 件をコピー…` : '選択したファンクションをコピー（行のチェックで選択）'}
+          </MenuItem>
         </Menu>
+        {checkedRows.length > 0 && (
+          <Button variant="contained" sx={{ flex: 'none' }} onClick={() => setCopying(true)}>選択した {checkedRows.length} 件をコピー…</Button>
+        )}
         <Box sx={{ flex: 1 }} />
         <Button
           color="inherit"
@@ -250,13 +295,17 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <DataGrid<FunctionRow>
           rows={rows}
-          columns={columns}
+          columns={columnWidths.apply(columns)}
+          onColumnWidthChange={({ colDef, width }) => columnWidths.setWidth(colDef.field, width)}
           getRowId={(r) => r.rowId}
           rowHeight={32}
           columnHeaderHeight={36}
           hideFooter
           disableColumnMenu
           disableRowSelectionOnClick
+          checkboxSelection
+          rowSelectionModel={model}
+          onRowSelectionModelChange={(m) => setChecked({ featureId, model: m })}
           isCellEditable={({ row, field }) => editable(row, field)}
           processRowUpdate={(next, prev) => {
             const patch: Record<string, unknown> = {};
@@ -288,6 +337,14 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
         />
       )}
       {ref && <ReferenceDialog featureId={featureId} onClose={() => setRef(false)} onDuplicate={setAdd} />}
+      {copying && checkedRows.length > 0 && (
+        <CopyFunctionsDialog
+          featureId={featureId}
+          rows={checkedRows}
+          onClose={() => setCopying(false)}
+          onCopied={() => setChecked({ featureId, model: { type: 'include', ids: new Set() } })}
+        />
+      )}
       {connectFrom && <ConnectDialog featureId={featureId} from={connectFrom} onClose={() => setConnectFrom(null)} />}
     </Box>
   );
