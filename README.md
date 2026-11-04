@@ -11,6 +11,8 @@ npm run dev        # http://localhost:5173 で起動
 
 初回はデータが空です。左のツリーの「サンプルを開く」で、要件定義書の計算例を再現したサンプルを読み込めます。
 
+ツールバーの「Copilot 連携」から、機能の DFD を Microsoft Copilot のエージェントに渡して作成・見直しを手伝ってもらい、その返答を取り込めます。手順とエージェントに与える指示は [doc/copilot-agent.md](doc/copilot-agent.md) を参照してください。
+
 配布用には次を実行します。`dist/index.html` 1 ファイルにすべてが入っており、ダブルクリックでブラウザから直接開けます。任意の静的ホスティングにも置けます。
 
 ```sh
@@ -33,3 +35,4 @@ npm run typecheck
 - [doc/requirements.md](doc/requirements.md) 要件定義書
 - [doc/design.md](doc/design.md) 設計書
 - [doc/ui-design.md](doc/ui-design.md) UI デザイン書（モック: [doc/ui/mock/index.html](doc/ui/mock/index.html)）
+- [doc/copilot-agent.md](doc/copilot-agent.md) Copilot エージェントとの連携手順とエージェントに与える指示

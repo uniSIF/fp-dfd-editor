@@ -1,4 +1,5 @@
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import NoteAddOutlinedIcon from '@mui/icons-material/NoteAddOutlined';
@@ -118,6 +119,7 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
       <Button variant="outlined" color="inherit" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportSvg(featureId)} disabled={!featureId} sx={{ borderColor: tokens.borderStrong, ml: 1 }}>
         SVG出力
       </Button>
+      <AgentMenu featureId={featureId} />
       <Sep />
       <ToolButton title="設定" onClick={onOpenSettings} disabled={!softwareId}><SettingsOutlinedIcon fontSize="small" /></ToolButton>
       <Box sx={{ flex: 1 }} />
@@ -125,5 +127,29 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
         <Button color="inherit" startIcon={<TuneIcon />} onClick={onToggleProperties}>プロパティ</Button>
       )}
     </Box>
+  );
+}
+
+/** AI エージェント（Copilot）との連携（FR-IO）。選択中の機能の DFD を書き出す・取り込む */
+function AgentMenu({ featureId }: { featureId: string | null }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = (mode: 'export' | 'import') => {
+    setAnchor(null);
+    if (featureId) useStore.getState().openAgentExchange({ mode, featureId });
+  };
+  return (
+    <>
+      <Button
+        variant="outlined" color="inherit" startIcon={<AutoAwesomeOutlinedIcon />} disabled={!featureId}
+        onClick={(e) => setAnchor(e.currentTarget)} sx={{ borderColor: tokens.borderStrong, ml: 1 }}
+        aria-haspopup="menu"
+      >
+        Copilot 連携
+      </Button>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        <MenuItem dense onClick={() => open('export')}>Copilot 用に書き出す…</MenuItem>
+        <MenuItem dense onClick={() => open('import')}>Copilot の出力を取り込む…</MenuItem>
+      </Menu>
+    </>
   );
 }

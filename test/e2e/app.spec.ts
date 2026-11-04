@@ -757,6 +757,54 @@ test('DFD の要素は名称を省略せず、2 行に収まるよう横に伸�
   expect(Math.abs((await short.boundingBox())!.width - before.n2.width)).toBeLessThan(1);
 });
 
+test('Copilot 用に書き出し、エージェントの返答を取り込める（FR-IO）', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openSample(page);
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot 用に書き出す…' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('エージェントへの依頼').fill('CSV で顧客を一括登録する処理を追加してください');
+  await shot(page, '24-agent-export');
+  await dialog.getByRole('button', { name: '依頼文と JSON をコピー' }).click();
+  await expect(page.getByText('依頼文と JSON をコピーしました')).toBeVisible();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('依頼: CSV で顧客を一括登録する処理を追加してください');
+  const json = JSON.parse(copied.slice(copied.indexOf('```json') + 7, copied.lastIndexOf('```')));
+  expect(json.format).toBe('fp-dfd-exchange');
+  expect(json.feature.key).toBe('fReg');
+  await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 役割');
+  await dialog.getByRole('button', { name: '閉じる' }).click();
+
+  // エージェントの返答（説明文 + コードブロック）を模して、TF を 1 つ追加しデータフローでつなぐ
+  json.dfd.transactionFunctions.push({ key: 'NEW-1', name: '顧客一括登録', kind: 'EI', complexity: 'high', description: 'CSV で複数件を登録（DET 20・FTR 1）' });
+  json.dfd.dataFlows.push({ from: 'EE-001', to: 'NEW-1', label: '顧客 CSV' }, { from: 'NEW-1', to: 'DF-001', label: '顧客データ' });
+  const reply = `一括登録の処理を追加しました。\n\n\`\`\`json\n${JSON.stringify({ format: json.format, version: 1, feature: json.feature, dfd: json.dfd }, null, 2)}\n\`\`\`\n\n- 仮定: CSV の項目は 20 程度`;
+
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('エージェントの返答').fill(reply);
+  const changes = dialog.getByRole('list', { name: '取り込む変更' });
+  await expect(changes.getByRole('listitem')).toHaveCount(3);
+  await expect(changes).toContainText('顧客一括登録');
+  await expect(changes).toContainText('EE-001 → NEW-1「顧客 CSV」');
+  await shot(page, '25-agent-import');
+  await dialog.getByRole('button', { name: '取り込む' }).click();
+  await expect(page.getByText(/Copilot の出力を取り込みました/)).toBeVisible();
+  await expect(page.locator(NODE).filter({ hasText: '顧客一括登録' })).toHaveCount(1);
+  // EI 高 6 FP が加わる
+  await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
+
+  // エラーのある返答は取り込めない
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('エージェントの返答').fill(JSON.stringify({ dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }], dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'low' }], dataFlows: [{ from: 'EE-001', to: 'DF-001' }] } }));
+  await expect(dialog.getByRole('alert')).toContainText('外部エンティティとデータストアは直接接続できません');
+  await expect(dialog.getByRole('button', { name: '取り込む' })).toBeDisabled();
+});
+
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
   await openSample(page);
   await page.locator('.react-flow__node[data-id="n1"]').click(); // 利用者

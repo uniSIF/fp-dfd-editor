@@ -18,6 +18,7 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
     copyDfd: null,
     replaceText: null,
     nameFocusRequested: false,
+    agentExchange: null,
 
     selectSoftware: (id) =>
       set((s) => {
@@ -64,5 +65,6 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
         s.nameFocusRequested = true;
       }),
     clearNameFocusRequest: () => set((s) => { s.nameFocusRequested = false; }),
+    openAgentExchange: (r) => set((s) => { s.agentExchange = r; }),
   };
 }

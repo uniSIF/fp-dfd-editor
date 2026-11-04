@@ -1,3 +1,4 @@
+import type { ImportPlan } from '../domain/exchange';
 import type { ReplaceOptions } from '../domain/textReplace';
 import type {
   Complexity,
@@ -171,6 +172,11 @@ export interface DocumentSlice {
     includeEdges: boolean;
     replace: { find: string; replace: string } & ReplaceOptions;
   }) => { ok: true; created: EntityRef[]; nodeIds: Id[]; edgeIds: Id[] } | { ok: false; reason: string };
+  /**
+   * AI エージェントの出力（交換形式）から計算した差分を反映する（FR-IO-02）。1 履歴。
+   * layout なら反映後に自動整列する。
+   */
+  applyImportPlan: (featureId: Id, plan: ImportPlan, options: { layout: boolean }) => { ok: true; created: number } | { ok: false; reason: string };
   /** 文言置換の結果をまとめて反映する（FR-FN-17）。1 履歴 */
   applyTextReplacements: (changes: TextChange[]) => void;
   updateEdgeLabel: (featureId: Id, edgeId: Id, label: string) => void;
@@ -202,6 +208,8 @@ export interface UiSlice {
   replaceText: { featureId: Id; refIds?: Id[]; edgeIds?: Id[] } | null;
   /** DFD でダブルクリックされ、プロパティパネルの名称（データフローはラベル）へのフォーカスを待っている */
   nameFocusRequested: boolean;
+  /** AI エージェント（Copilot）との連携ダイアログ（FR-IO） */
+  agentExchange: { mode: 'export' | 'import'; featureId: Id } | null;
 
   selectSoftware: (id: Id | null) => void;
   selectFeature: (id: Id | null) => void;
@@ -219,6 +227,7 @@ export interface UiSlice {
   /** ノード・データフローを選び、プロパティパネルの名称欄へフォーカスする（DFD のダブルクリック） */
   requestNameFocus: (nodeIds: Id[], edgeId: Id | null) => void;
   clearNameFocusRequest: () => void;
+  openAgentExchange: (r: { mode: 'export' | 'import'; featureId: Id } | null) => void;
 }
 
 export type AppState = DocumentSlice & UiSlice;

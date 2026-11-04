@@ -884,6 +884,9 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-23 | UI スライス（`requestNameFocus` / `nameFocusRequested`）、`DfdCanvas.tsx`（`onNodeDoubleClick` / `onEdgeDoubleClick`）、`PropertyPanel.tsx`（`useRequestedFocus`） |
 | FR-DF-24 | `domain/dfdGeometry.ts`（`nodeLayout` / `nodeSize(refType, name)`）、`DfdNodes.tsx`、`svgExport.ts`、`autoLayout.ts`（`nameOf`） |
 | FR-FN-18 | 4.2（`copyFunctions`）、`features/functions/CopyFunctionsDialog.tsx`、`FunctionTable.tsx`（`checkboxSelection`） |
+| FR-IO-01 | `domain/exchange.ts`（`buildExchange`）、`features/agent/AgentExportDialog.tsx`、`infra/clipboard.ts` |
+| FR-IO-02 | `domain/exchange.ts`（`parseExchange` / `planImport`）、4.2（`applyImportPlan`）、`features/agent/AgentImportDialog.tsx` |
+| FR-IO-03 | `domain/agentPrompt.ts`（`AGENT_INSTRUCTIONS`）、`doc/copilot-agent.md`（同じ文面であることを単体テストで確認） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
@@ -969,6 +972,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | 既存の要素への参照に置き換え（FR-DF-22） | なし（要件追加） | `replaceWithReference` はノードの `refId` を付け替える（ノード ID とデータフローは保つ）。データファンクションは 1 DFD に 1 回までなので、置き換え先が配置済みならデータフローをそのノードへ付け替え、自己ループと同じ向き・ラベルの重複を捨ててから元のノードを消す。元の要素の削除は、置き換え後にどの DFD にも配置されていない場合だけ行う | 別の番号で重複して追加した要素を、DFD を描き直さずにまとめるため |
 | ファンクションの一括コピー（FR-FN-18） | なし（要件追加） | `copyFunctions` は `copyDfdToFeature` と同じ考え方（複製する実体と共有の実体を分ける）で、選んだ実体だけを対象にし、置換（`replaceText`）を作成時に適用する。共有の実体は、コピー先に置いてあるノードを使う（同じ機能へのコピーではそのノード自身）。共有の実体どうしのデータフローは、同じ機能では重複するため作らない。表のチェック状態は機能ごとのローカル状態で、機能を切り替えると外す | 似たファンクションの組をまとめて作り、名称の重複をその場で直せるようにするため |
 | 名称に合わせたノードの大きさ（FR-DF-24） | 6.2 は固定寸法（プロセス 88px の円、データストア 180×44、外部エンティティ 140×60） | `nodeLayout(refType, name)` が文字幅の概算（全角 1・半角英数 0.6・半角カナ 0.5）から、名称を 2 行に分けた 1 行の幅を求め、既定の大きさで 1 行に入らないときだけ横に伸ばす。データストアは 2 行が入るよう高さを 60px にした。大きさは名称から毎回計算し、保存データには持たない。配置計算（空き位置・境界・自動整列・SVG）はすべて名称付きで `nodeSize` を呼ぶ | 長い名称を省略せずに読めるようにするため。高さを固定して横に伸ばすと、行の高さがそろい自動整列の段が崩れにくい |
+| AI エージェント連携（FR-IO-01〜03） | なし（要件追加） | 交換形式は保存ファイルとは別の、機能 1 つ分の「完成形」。内部 ID ではなく表示番号を key にする（エージェントが扱いやすく、取り違えにくい）。非計上プロセスは表示番号がないため `NCP-<ID>`。取り込みは `parseExchange`（zod で緩く検証し、複雑度の日本語や小文字の種別も受け付ける）→ `planImport`（純粋関数で差分を計算）→ `applyImportPlan`（1 回の `mutate`）の 3 段。外部エンティティを複数置いている DFD では、入力元は左端・出力先は右端のノードにつなぐ（`connectEntities` と同じ） | エージェントに差分を書かせるより完成形を返させるほうが誤りが少なく、差分の確認をアプリ側で行えるため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。

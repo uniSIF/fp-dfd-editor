@@ -17,6 +17,8 @@ import { FunctionTable } from '../functions/FunctionTable';
 import { PropertyPanel } from '../properties/PropertyPanel';
 import { BackupDialog } from '../settings/BackupDialog';
 import { CopyDfdDialog } from '../functions/CopyDfdDialog';
+import { AgentExportDialog } from '../agent/AgentExportDialog';
+import { AgentImportDialog } from '../agent/AgentImportDialog';
 import { ReplaceTextDialog } from '../functions/ReplaceTextDialog';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { FunctionLedger } from '../summary/FunctionLedger';
@@ -80,6 +82,7 @@ export function AppShell() {
   const doc = useStore((s) => s.doc);
   const copyDfd = useStore((s) => s.copyDfd);
   const replaceText = useStore((s) => s.replaceText);
+  const agentExchange = useStore((s) => s.agentExchange);
   const featureExists = !!featureId && !!doc.features[featureId];
   const softwareExists = !!softwareId && !!doc.softwares[softwareId];
 
@@ -136,6 +139,8 @@ export function AppShell() {
         </Drawer>
       )}
       <StatusBar onOpenSettings={() => setSettingsOpen(true)} />
+      {agentExchange?.mode === 'export' && <AgentExportDialog featureId={agentExchange.featureId} onClose={() => useStore.getState().openAgentExchange(null)} />}
+      {agentExchange?.mode === 'import' && <AgentImportDialog featureId={agentExchange.featureId} onClose={() => useStore.getState().openAgentExchange(null)} />}
       {copyDfd && <CopyDfdDialog sourceFeatureId={copyDfd.sourceFeatureId} onClose={() => useStore.getState().openCopyDfd(null)} />}
       {replaceText && (
         <ReplaceTextDialog
