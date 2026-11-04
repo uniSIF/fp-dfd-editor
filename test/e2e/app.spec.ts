@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 const SHOTS = process.env.E2E_SHOTS;
@@ -217,7 +217,6 @@ test('表で複雑度を変えると FP 列・費用が更新される（DataGri
   const row = page.getByRole('row').filter({ hasText: 'TF-002' });
   await row.getByRole('gridcell', { name: '低' }).dblclick();
   await page.getByRole('option', { name: '高' }).click();
-  await page.keyboard.press('Enter');
   await expect(row.locator('[data-field="fp"]')).toHaveText('7');
   await expect(page.getByTestId('cost-feature')).toHaveText('950,000');
 });
@@ -454,10 +453,206 @@ test('既存を参照から外部エンティティをもう 1 つ配置でき�
   await dialog.getByRole('tab', { name: '外部エンティティ' }).click();
   const option = dialog.getByRole('option', { name: /利用者/ });
   await expect(option).toBeEnabled();
-  await expect(option).toContainText('配置済み（もう 1 つ置く）');
+  await expect(option).toContainText('配置済み・追加可');
   await option.click();
-  await dialog.getByRole('button', { name: '配置' }).click();
+  await dialog.getByRole('button', { name: '配置', exact: true }).click();
   await expect(page.locator(NODE).filter({ hasText: '利用者' })).toHaveCount(2);
+});
+
+test('追加済みのトランザクションファンクションの種別を変更できる（EQ → EO）', async ({ page }) => {
+  await openSample(page);
+  const kindOf = () => page.evaluate(() => (window as unknown as { __store: { getState: () => { doc: { transactionFunctions: Record<string, { kind: string; complexity: string }> } } } }).__store.getState().doc.transactionFunctions.tf3);
+  // ファンクション表: 選んだ時点で確定し、FP と開発単価が変わる
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  const row = page.getByRole('row').filter({ hasText: '顧客検索' });
+  await row.locator('[data-field="kind"]').dblclick();
+  await page.getByRole('option', { name: 'EO' }).click();
+  await expect(row.locator('[data-field="kind"]')).toHaveText('EO');
+  await expect(row.locator('[data-field="fp"]')).toHaveText('4');
+  await expect(page.getByTestId('cost-feature')).toHaveText('864,000');
+  expect((await kindOf()).kind).toBe('EO');
+  // 複雑度も同じく選んだ時点で確定する
+  await row.locator('[data-field="complexity"]').dblclick();
+  await page.getByRole('option', { name: '中' }).click();
+  await expect(row.locator('[data-field="fp"]')).toHaveText('5');
+  expect((await kindOf()).complexity).toBe('medium');
+  // プロパティパネル（DFD でノードを選択）からも戻せる
+  await page.getByRole('tab', { name: 'DFD' }).click();
+  await page.locator('.react-flow__node[data-id="n4"]').click();
+  await page.getByRole('group', { name: '種別' }).getByRole('button', { name: 'EQ' }).click();
+  expect((await kindOf()).kind).toBe('EQ');
+  await expect(page.locator('.react-flow__node[data-id="n4"]')).toContainText('EQ');
+});
+
+test('既存を参照の一覧は長い名前でも 1 行に収まり、配置済みを表示する', async ({ page }) => {
+  await openSample(page);
+  await page.evaluate(() => {
+    const s = (window as unknown as { __store: { getState: () => { updateDataFunction: (id: string, p: { name: string }) => void; updateExternalEntity: (id: string, p: { name: string }) => void; updateFeature: (id: string, p: { name: string }) => void } } }).__store.getState();
+    s.updateDataFunction('df1', { name: '顧客マスタ（法人・個人の契約情報と請求先情報を含む）' });
+    s.updateExternalEntity('ee1', { name: '窓口担当者および外部委託オペレータおよび管理者' });
+    s.updateFeature('fReg', { name: '顧客情報を新規に登録する機能（法人・個人）' });
+  });
+  await page.getByRole('button', { name: /既存のデータファンクション・外部エンティティを参照配置/ }).click();
+  const dialog = page.getByRole('dialog');
+  for (const tab of ['データファンクション', '外部エンティティ']) {
+    await dialog.getByRole('tab', { name: tab }).click();
+    const option = dialog.getByRole('option').first();
+    await expect(option).toContainText('配置済み');
+    const box = (await option.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(37);
+    // 名称は省略され、行の右端からはみ出さない
+    const overflow = await option.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return [...el.querySelectorAll('span')].some((c) => c.getBoundingClientRect().right > r.right + 0.5);
+    });
+    expect(overflow).toBe(false);
+  }
+});
+
+test('ダイアログの一覧は長い名前でも行からはみ出さない（接続・DFD コピー・文言置換）', async ({ page }) => {
+  await openSample(page);
+  await page.evaluate(() => {
+    type S = Record<string, (...a: unknown[]) => void> & { doc: Record<string, Record<string, { name: string }>> };
+    const s = (window as unknown as { __store: { getState: () => S } }).__store.getState();
+    s.updateDataFunction('df1', { name: '顧客マスタ（法人・個人の契約情報と請求先情報を含む）' });
+    s.updateTransactionFunction('tf1', { name: '顧客情報の新規登録画面からの入力受付と顧客情報の検証' });
+    s.updateFeature('fSearch', { name: '顧客情報を条件で検索して一覧表示する機能（法人・個人）' });
+    for (const k of ['category1s', 'category2s']) for (const id of Object.keys(s.doc[k])) s.renameCategory(id, `${s.doc[k][id].name}（長い分類名称）`);
+  });
+  // 各行の子要素（と 2 段表示の各段）が行の右端・下端を越えないこと。省略表示の内側は切り取られるので見ない
+  const assertFits = async (rows: Locator) => {
+    expect(await rows.count()).toBeGreaterThan(0);
+    const bad = await rows.evaluateAll((els) =>
+      els.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return [...el.querySelectorAll(':scope > *, :scope > * > div')].some((c) => {
+          const b = c.getBoundingClientRect();
+          return b.width > 0 && (b.right > r.right + 0.5 || b.bottom > r.bottom + 0.5);
+        });
+      }).length,
+    );
+    expect(bad).toBe(0);
+  };
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  await page.getByRole('button', { name: /顧客情報の新規登録.* の接続を追加/ }).click();
+  await assertFits(page.getByRole('dialog').getByRole('option'));
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'その他の操作（ファンクション表）' }).click();
+  await page.getByRole('menuitem', { name: /DFD を別の機能へコピー/ }).click();
+  await assertFits(page.getByRole('dialog').getByRole('option'));
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'その他の操作（ファンクション表）' }).click();
+  await page.getByRole('menuitem', { name: /文言を置換/ }).click();
+  await page.getByLabel('検索する文字列').fill('顧客');
+  await page.getByLabel('置換後の文字列').fill('取引先担当者');
+  const items = page.getByRole('dialog').getByRole('listitem');
+  await assertFits(items);
+  // 置換後の文言も表示される（長い置換前の文言に押し出されない）
+  await expect(items.first()).toContainText(/→\s*取引先担当者マスタ/);
+});
+
+test('既存を参照から内容だけコピーして別の ID で複製配置できる（FR-DF-21）', async ({ page }) => {
+  await openSample(page);
+  type Doc = { dataFunctions: Record<string, { name: string; kind: string; complexity: string; ownerFeatureId: string; displayNo: string }>; transactionFunctions: Record<string, { name: string; kind: string; complexity: string; featureId: string; displayNo: string }> };
+  const docOf = () => page.evaluate(() => (window as unknown as { __store: { getState: () => { doc: Doc } } }).__store.getState().doc);
+  const open = async () => {
+    await page.getByRole('button', { name: /既存のデータファンクション・外部エンティティを参照配置/ }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: '複製して配置（別の ID）' }).click();
+    return dialog;
+  };
+  // 配置済みのデータファンクションも複製なら選べる
+  let dialog = await open();
+  await dialog.getByRole('option', { name: /商品マスタ/ }).click();
+  await shot(page, '21-reference-duplicate');
+  await dialog.getByRole('button', { name: '複製…' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('データファンクションを複製')).toBeVisible();
+  await expect(dialog.getByLabel('名称')).toHaveValue('商品マスタ（コピー）');
+  await page.keyboard.type('在庫マスタ');
+  await dialog.getByRole('button', { name: '複製して配置' }).click();
+  let doc = await docOf();
+  const df = Object.values(doc.dataFunctions).find((d) => d.name === '在庫マスタ')!;
+  expect(df).toMatchObject({ kind: 'ILF', complexity: 'low', ownerFeatureId: 'fReg', displayNo: 'DF-003' });
+  await expect(page.locator(NODE).filter({ hasText: '在庫マスタ' })).toHaveCount(1);
+
+  // 他の機能のトランザクションファンクションも複製できる（参照のときはタブ自体が出ない）
+  dialog = await open();
+  await dialog.getByRole('tab', { name: 'トランザクション' }).click();
+  await dialog.getByRole('option', { name: /顧客照会/ }).dblclick();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: /EQ/ })).toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByRole('button', { name: '複製して配置' }).click();
+  doc = await docOf();
+  const tf = Object.values(doc.transactionFunctions).find((t) => t.name === '顧客照会（コピー）')!;
+  expect(tf).toMatchObject({ kind: 'EQ', featureId: 'fReg' });
+  expect(doc.transactionFunctions.tf4.featureId).toBe('fSearch');
+
+  // 参照に戻すとトランザクションのタブは消える
+  await page.getByRole('button', { name: /既存のデータファンクション・外部エンティティを参照配置/ }).click();
+  await expect(page.getByRole('dialog').getByRole('tab', { name: 'トランザクション' })).toHaveCount(0);
+});
+
+test('別 ID で重複して追加した外部エンティティを既存のものへの参照に置き換える（FR-DF-22）', async ({ page }) => {
+  await openSample(page);
+  type Doc = { externalEntities: Record<string, { name: string; displayNo: string }>; features: Record<string, { dfd: { nodes: { id: string; refId: string }[]; edges: { sourceNodeId: string; label: string }[] } }> };
+  const docOf = () => page.evaluate(() => (window as unknown as { __store: { getState: () => { doc: Doc } } }).__store.getState().doc);
+  // 誤って「利用者」を別 ID（EE-002）で追加し、データフローもつないでしまった
+  const nodeId = await page.evaluate(() => {
+    const st = (window as unknown as { __store: { getState: () => Record<string, (...a: unknown[]) => unknown> & { doc: Doc } } }).__store;
+    const id = st.getState().addExternalEntity({ featureId: 'fReg', name: '利用者', place: true }) as string;
+    const n = st.getState().doc.features.fReg.dfd.nodes.find((x) => x.refId === id)!;
+    st.getState().addEdge('fReg', n.id, 'n4', '照会条件');
+    return n.id;
+  });
+  await page.locator(`.react-flow__node[data-id="${nodeId}"]`).click();
+  await page.getByRole('button', { name: '既存の要素への参照に置き換え…' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('option')).toHaveCount(1);
+  await expect(dialog.getByRole('option').first()).toContainText('同じ名称');
+  await dialog.getByRole('option', { name: /EE-001 利用者/ }).click();
+  await shot(page, '22-replace-with-reference');
+  await dialog.getByRole('button', { name: '置き換え', exact: true }).click();
+  await expect(page.getByText('「利用者」を「利用者」への参照に置き換えました（EE-002 は削除）')).toBeVisible();
+  const doc = await docOf();
+  expect(Object.values(doc.externalEntities).map((e) => e.displayNo)).toEqual(['EE-001']);
+  expect(doc.features.fReg.dfd.nodes.find((n) => n.id === nodeId)?.refId).toBe('ee1');
+  expect(doc.features.fReg.dfd.edges.some((e) => e.sourceNodeId === nodeId && e.label === '照会条件')).toBe(true);
+  // 同じ外部エンティティを複数置いた印が付く
+  await expect(page.locator(`.react-flow__node[data-id="${nodeId}"]`)).toContainText('利用者');
+  // Undo で元に戻る
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(Object.keys((await docOf()).externalEntities)).toHaveLength(2);
+});
+
+test('DFD で要素をダブルクリックするとプロパティパネルの名称にフォーカスし、そのまま名称を変更できる', async ({ page }) => {
+  await openSample(page);
+  const name = page.getByRole('textbox', { name: '名称', exact: true });
+  await page.locator('.react-flow__node[data-id="n4"]').dblclick();
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue('顧客検索');
+  // 全選択されているので、入力すると置き換わる
+  await page.keyboard.type('顧客照会');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.react-flow__node[data-id="n4"]')).toContainText('顧客照会');
+  // 別のノードをダブルクリックすると、そのノードの名称へ移る
+  await page.locator('.react-flow__node[data-id="n1"]').dblclick();
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue('利用者');
+  await page.keyboard.press('Escape');
+  // ダブルクリックしてもズームしない
+  const before = await page.locator('.react-flow__viewport').getAttribute('style');
+  await page.locator('.react-flow__node[data-id="n2"]').dblclick();
+  await expect(name).toHaveValue('顧客登録入力');
+  expect(await page.locator('.react-flow__viewport').getAttribute('style')).toBe(before);
+  // データフローはラベルにフォーカスする
+  await page.locator('[data-testid="rf__edge-e5"]').dblclick({ force: true });
+  await expect(page.getByRole('textbox', { name: 'ラベル' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'ラベル' })).toHaveValue('検索条件');
 });
 
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
@@ -720,4 +915,37 @@ test('DFD を別の機能へコピーし、続けて文言を置換できる（F
   await dialog.getByLabel('検索する文字列').fill('利用者');
   await expect(dialog.getByText('0 件が見つかりました。')).toBeVisible(); // 外部エンティティは対象外
   await dialog.getByRole('button', { name: '閉じる' }).click();
+});
+
+test('一覧タブで長い大分類・中分類・小分類の名前はセル内で省略される', async ({ page }) => {
+  await openSample(page);
+  const long = { c1: '顧客管理業務全般にかかわる大分類', c2: '顧客情報の登録と照会に関する中分類', f: '顧客情報を新規に登録する長い名前の小分類' };
+  await page.evaluate((n) => {
+    const s = (window as unknown as { __store: { getState: () => { renameCategory: (id: string, v: string) => void; updateFeature: (id: string, p: { name: string }) => void } } }).__store.getState();
+    s.renameCategory('c1a', n.c1);
+    s.renameCategory('c2a', n.c2);
+    s.updateFeature('fReg', { name: n.f });
+  }, long);
+  await page.getByRole('tab', { name: '一覧' }).click();
+  const cells = page.locator('table tbody tr').first().locator('td');
+  const widths = [90, 90, 110];
+  let prevRight = -Infinity;
+  for (let i = 0; i < 3; i++) {
+    const info = await cells.nth(i).evaluate((td) => {
+      const box = td.getBoundingClientRect();
+      const el = (td.querySelector('button') ?? td) as HTMLElement;
+      const cs = getComputedStyle(el);
+      return {
+        left: box.left, right: box.right, width: box.width,
+        clipped: cs.overflow === 'hidden' && cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth,
+        title: el.getAttribute('title') ?? td.getAttribute('title'),
+      };
+    });
+    expect(Math.round(info.width)).toBe(widths[i]);
+    expect(info.clipped).toBe(true);
+    expect(info.left).toBeGreaterThanOrEqual(prevRight - 1);
+    prevRight = info.right;
+    expect(info.title).toBe([long.c1, long.c2, long.f][i]);
+  }
+  await shot(page, '26-summary-long-names');
 });

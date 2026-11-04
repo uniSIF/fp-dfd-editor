@@ -565,6 +565,52 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       });
       return { ok: true, id: newNodeId };
     },
+    replaceWithReference: ({ featureId, nodeId, toRefId, scope, removeOriginal }) => {
+      const doc = get().doc;
+      const node = doc.features[featureId]?.dfd.nodes.find((n) => n.id === nodeId);
+      if (!node || (node.refType !== 'dataFunction' && node.refType !== 'externalEntity')) {
+        return { ok: false, reason: 'データファンクションか外部エンティティを選んでください。' };
+      }
+      const { refType, refId: fromRefId } = node;
+      const swOf = (id: Id) => (refType === 'dataFunction' ? doc.dataFunctions[id]?.softwareId : doc.externalEntities[id]?.softwareId);
+      if (fromRefId === toRefId || !swOf(toRefId) || swOf(toRefId) !== swOf(fromRefId)) {
+        return { ok: false, reason: '同じソフトウェアの別の要素を選んでください。' };
+      }
+      let removed = false;
+      mutate((d) => {
+        const featureIds = scope === 'all' ? Object.keys(d.features) : [featureId];
+        for (const fid of featureIds) {
+          const dfd = d.features[fid].dfd;
+          const targets = dfd.nodes.filter((n) => n.refType === refType && n.refId === fromRefId && (scope === 'all' || n.id === nodeId));
+          const existing = dfd.nodes.find((n) => n.refType === refType && n.refId === toRefId);
+          for (const n of targets) {
+            if (canPlaceMultiple(refType) || !existing) {
+              n.refId = toRefId;
+              continue;
+            }
+            // データファンクションは置き換え先のノードへ統合する。自己ループと同じ向き・ラベルの重複は捨てる
+            for (const e of dfd.edges) {
+              if (e.sourceNodeId === n.id) e.sourceNodeId = existing.id;
+              if (e.targetNodeId === n.id) e.targetNodeId = existing.id;
+            }
+            const seen = new Set<string>();
+            dfd.edges = dfd.edges.filter((e) => {
+              const key = `${e.sourceNodeId}>${e.targetNodeId}:${e.label}`;
+              if (e.sourceNodeId === e.targetNodeId || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            dfd.nodes = dfd.nodes.filter((x) => x.id !== n.id);
+          }
+        }
+        const stillPlaced = Object.values(d.features).some((f) => f.dfd.nodes.some((n) => n.refType === refType && n.refId === fromRefId));
+        if (removeOriginal && !stillPlaced) {
+          deleteEntityOnDraft(d, refType, fromRefId);
+          removed = true;
+        }
+      });
+      return { ok: true, removed };
+    },
     updateEdgeLabel: (featureId, edgeId, label) =>
       mutate((d) => {
         const e = d.features[featureId].dfd.edges.find((x) => x.id === edgeId);

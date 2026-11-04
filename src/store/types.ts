@@ -133,6 +133,19 @@ export interface DocumentSlice {
    */
   splitExternalEntityNode: (featureId: Id, nodeId: Id) => ActionResult;
   /**
+   * データファンクション・外部エンティティのノードを、同じソフトウェアの既存の同種の要素への参照に置き換える（FR-DF-22）。1 履歴。
+   * scope='all' なら元の要素を置いているすべての DFD のノードを置き換える。
+   * データファンクションは 1 つの DFD に 1 回までなので、置き換え先が配置済みならデータフローをそのノードへ付け替えて統合する。
+   * removeOriginal なら、置き換え後にどこにも配置されていない元の要素を削除する（戻り値の removed）。
+   */
+  replaceWithReference: (p: {
+    featureId: Id;
+    nodeId: Id;
+    toRefId: Id;
+    scope: 'node' | 'all';
+    removeOriginal: boolean;
+  }) => { ok: true; removed: boolean } | { ok: false; reason: string };
+  /**
    * DFD を同じソフトウェア内の別の機能へコピーする（FR-DF-20）。1 履歴。
    * TF・非計上プロセスは複製、外部エンティティは同じものを配置、
    * データファンクションは dataFunctions の指定に従い参照配置または複製する。
@@ -172,6 +185,8 @@ export interface UiSlice {
   copyDfd: { sourceFeatureId: Id } | null;
   /** 「文言を置換」ダイアログ（FR-FN-17）。refIds / edgeIds があればそれだけを対象にする */
   replaceText: { featureId: Id; refIds?: Id[]; edgeIds?: Id[] } | null;
+  /** DFD でダブルクリックされ、プロパティパネルの名称（データフローはラベル）へのフォーカスを待っている */
+  nameFocusRequested: boolean;
 
   selectSoftware: (id: Id | null) => void;
   selectFeature: (id: Id | null) => void;
@@ -186,6 +201,9 @@ export interface UiSlice {
   setBackupAvailable: (v: boolean) => void;
   openCopyDfd: (sourceFeatureId: Id | null) => void;
   openReplaceText: (r: { featureId: Id; refIds?: Id[]; edgeIds?: Id[] } | null) => void;
+  /** ノード・データフローを選び、プロパティパネルの名称欄へフォーカスする（DFD のダブルクリック） */
+  requestNameFocus: (nodeIds: Id[], edgeId: Id | null) => void;
+  clearNameFocusRequest: () => void;
 }
 
 export type AppState = DocumentSlice & UiSlice;

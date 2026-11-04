@@ -303,4 +303,65 @@ describe('store', () => {
     undo(store);
     expect(Object.values(store.getState().doc.transactionFunctions).filter((t) => t.featureId === 'fSearch').map((t) => t.name)).toContain('顧客登録入力');
   });
+  it('replaceWithReference: 重複した外部エンティティをすべての DFD で既存のものへ置き換え、元を削除する（FR-DF-22）', () => {
+    const store = setup();
+    const s = store.getState();
+    // 誤って別 ID で追加した「利用者」を 2 つの機能に置く
+    const dupId = s.addExternalEntity({ featureId: 'fReg', name: '利用者', place: true });
+    const regNode = store.getState().doc.features.fReg.dfd.nodes.find((n) => n.refId === dupId)!;
+    store.getState().addEdge('fReg', regNode.id, 'n4', '検索条件2');
+    store.getState().placeNode('fItem', 'externalEntity', dupId);
+    store.temporal.getState().clear();
+
+    const r = store.getState().replaceWithReference({ featureId: 'fReg', nodeId: regNode.id, toRefId: 'ee1', scope: 'all', removeOriginal: true });
+    expect(r).toEqual({ ok: true, removed: true });
+    const doc = store.getState().doc;
+    expect(doc.externalEntities[dupId]).toBeUndefined();
+    // ノード ID とデータフローはそのまま、参照先だけが変わる
+    expect(doc.features.fReg.dfd.nodes.find((n) => n.id === regNode.id)?.refId).toBe('ee1');
+    expect(doc.features.fReg.dfd.edges.some((e) => e.sourceNodeId === regNode.id && e.label === '検索条件2')).toBe(true);
+    expect(doc.features.fItem.dfd.nodes.filter((n) => n.refId === 'ee1')).toHaveLength(1);
+    // 1 回の Undo で戻る
+    undo(store);
+    expect(store.getState().doc.externalEntities[dupId]).toBeDefined();
+    expect(store.getState().doc.features.fItem.dfd.nodes.some((n) => n.refId === dupId)).toBe(true);
+  });
+
+  it('replaceWithReference: この DFD だけ置き換えると、他の DFD に残る元の要素は削除しない', () => {
+    const store = setup();
+    const dupId = store.getState().addExternalEntity({ featureId: 'fReg', name: '利用者', place: true });
+    store.getState().placeNode('fItem', 'externalEntity', dupId);
+    const nodeId = store.getState().doc.features.fReg.dfd.nodes.find((n) => n.refId === dupId)!.id;
+    const r = store.getState().replaceWithReference({ featureId: 'fReg', nodeId, toRefId: 'ee1', scope: 'node', removeOriginal: true });
+    expect(r).toEqual({ ok: true, removed: false });
+    expect(store.getState().doc.externalEntities[dupId]).toBeDefined();
+    expect(store.getState().doc.features.fItem.dfd.nodes.some((n) => n.refId === dupId)).toBe(true);
+  });
+
+  it('replaceWithReference: 配置済みのデータファンクションへはノードを統合し、FP の二重計上をなくす', () => {
+    const store = setup();
+    // fReg に「商品マスタ」を別 ID（fReg 所有）で追加してしまった
+    const dupId = store.getState().addDataFunction({ featureId: 'fReg', name: '商品マスタ', kind: 'ILF', complexity: 'low', place: true });
+    const dupNode = store.getState().doc.features.fReg.dfd.nodes.find((n) => n.refId === dupId)!;
+    store.getState().addEdge('fReg', dupNode.id, 'n4', '商品情報'); // n6 → n4「商品情報」と重複
+    store.getState().addEdge('fReg', 'n2', dupNode.id, '商品コード');
+    const before = selectFeatureResult(store.getState().doc, 'fReg')!.unadjustedFp;
+
+    const r = store.getState().replaceWithReference({ featureId: 'fReg', nodeId: dupNode.id, toRefId: 'df2', scope: 'all', removeOriginal: true });
+    expect(r).toEqual({ ok: true, removed: true });
+    const dfd = store.getState().doc.features.fReg.dfd;
+    expect(dfd.nodes.some((n) => n.id === dupNode.id)).toBe(false);
+    expect(dfd.nodes.filter((n) => n.refId === 'df2')).toHaveLength(1);
+    expect(dfd.edges.filter((e) => e.sourceNodeId === 'n6' && e.targetNodeId === 'n4')).toHaveLength(1);
+    expect(dfd.edges.some((e) => e.sourceNodeId === 'n2' && e.targetNodeId === 'n6' && e.label === '商品コード')).toBe(true);
+    expect(selectFeatureResult(store.getState().doc, 'fReg')!.unadjustedFp).toBe(before - 7);
+  });
+
+  it('replaceWithReference: 自分自身・別種の要素、TF のノードは拒否する', () => {
+    const store = setup();
+    const s = store.getState();
+    expect(s.replaceWithReference({ featureId: 'fReg', nodeId: 'n1', toRefId: 'ee1', scope: 'all', removeOriginal: true }).ok).toBe(false);
+    expect(s.replaceWithReference({ featureId: 'fReg', nodeId: 'n1', toRefId: 'df1', scope: 'all', removeOriginal: true }).ok).toBe(false);
+    expect(s.replaceWithReference({ featureId: 'fReg', nodeId: 'n2', toRefId: 'tf2', scope: 'all', removeOriginal: true }).ok).toBe(false);
+  });
 });

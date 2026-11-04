@@ -27,7 +27,11 @@ export function SummaryTable({ softwareId }: { softwareId: Id }) {
   const totals = selectSoftwareTotals(doc, softwareId)!;
   const warnings = selectWarnings(doc, softwareId);
   const vendors = sw.vendorIds.map((id) => doc.vendors[id]).filter(Boolean);
-  const pin = (i: number, extra: object = {}) => ({ position: 'sticky' as const, left: PIN[i], minWidth: PIN_W[i], maxWidth: PIN_W[i], zIndex: 2, ...extra });
+  // 左に固定する機能名の 3 列。長い名前はセル内で「…」に省略する（はみ出して隣の列に重ならないよう overflow を切る）
+  const pin = (i: number, extra: object = {}) => ({
+    position: 'sticky' as const, left: PIN[i], width: PIN_W[i], minWidth: PIN_W[i], maxWidth: PIN_W[i], zIndex: 2,
+    overflow: 'hidden', textOverflow: 'ellipsis', ...extra,
+  });
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -70,10 +74,10 @@ export function SummaryTable({ softwareId }: { softwareId: Id }) {
               const w = warnings.filter((x) => x.featureId === f.id);
               return (
                 <tr key={f.id}>
-                  <td style={pin(0)}>{p.category1.name}</td>
-                  <td style={pin(1)}>{p.category2.name}</td>
+                  <td style={pin(0)} title={p.category1.name}>{p.category1.name}</td>
+                  <td style={pin(1)} title={p.category2.name}>{p.category2.name}</td>
                   <td style={pin(2)} className="pin-edge">
-                    <Link component="button" onClick={() => { selectFeature(f.id); setActiveTab('dfd'); }} sx={{ fontSize: 13, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</Link>
+                    <Link component="button" title={f.name} onClick={() => { selectFeature(f.id); setActiveTab('dfd'); }} sx={{ fontSize: 13, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{f.name}</Link>
                   </td>
                   {(['ILF', 'EIF', 'EI', 'EO', 'EQ'] as const).map((k, i) => <td key={k} className={`r${i === 0 ? ' g' : ''}`}>{r.counts[k]}</td>)}
                   <td className="r g">{r.characteristicsSum}</td>

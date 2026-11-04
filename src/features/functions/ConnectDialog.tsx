@@ -15,6 +15,7 @@ import type { Id } from '../../domain/types';
 import { useStore, type EntityRef } from '../../store';
 import { selectFeatureFunctions, type FunctionRow } from '../../store/selectors';
 import { tokens } from '../app/theme';
+import { ellipsis } from '../common/ellipsis';
 import { KindBadge } from '../common/KindBadge';
 
 function badgeOf(r: FunctionRow) {
@@ -81,14 +82,14 @@ export function ConnectDialog({ featureId, from, onClose }: { featureId: Id; fro
                 onClick={() => setTarget(row.rowId)}
                 onDoubleClick={() => submit(row.rowId)}
                 sx={{
-                  width: '100%', minHeight: 36, justifyContent: 'flex-start', gap: 2, px: 3, py: 1, borderBottom: `1px solid ${tokens.border}`, textAlign: 'left',
+                  width: '100%', height: 36, justifyContent: 'flex-start', gap: 2, px: 3, borderBottom: `1px solid ${tokens.border}`, textAlign: 'left',
                   '&:last-child': { borderBottom: 0 }, background: target === row.rowId ? tokens.primarySoft : undefined,
                   '&:hover': { background: target === row.rowId ? tokens.primarySoft : '#F8F9FB' }, '&.Mui-disabled': { color: tokens.textDisabled },
                 }}
               >
                 {badgeOf(row)}
-                <span>{row.name}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>
+                <span style={ellipsis({ flex: 1 })} title={row.name}>{row.name}</span>
+                <span style={{ flexShrink: 0, fontSize: 12, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>
                   {reason ? '接続不可' : [already && '接続済み', !row.placed && '未配置（自動配置）'].filter(Boolean).join(' ・ ')}
                 </span>
               </ButtonBase>

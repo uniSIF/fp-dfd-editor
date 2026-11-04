@@ -21,7 +21,8 @@ import { WarningIcon } from '../common/WarningIcon';
 import { nodeSize } from '../../domain/dfdGeometry';
 import { CharacteristicsEditor } from '../functions/CharacteristicsEditor';
 import { ConnectDialog } from '../functions/ConnectDialog';
-import { useState } from 'react';
+import { ReplaceWithReferenceDialog } from '../dfd/ReplaceWithReferenceDialog';
+import { useEffect, useRef, useState } from 'react';
 
 /** プロパティパネル（ui-design.md 4.7） */
 export function PropertyPanel() {
@@ -31,6 +32,8 @@ export function PropertyPanel() {
   const nodeIds = useStore((s) => s.selectedNodeIds);
   const edgeId = useStore((s) => s.selectedEdgeId);
   const feature = featureId ? doc.features[featureId] : null;
+  // データフローを表示しているときだけ、ラベル欄がダブルクリックのフォーカス先になる
+  const labelRef = useRequestedFocus(edgeId ?? '', target === 'node' && !!edgeId && nodeIds.length === 0);
 
   if (!feature || !featureId) {
     return (
@@ -59,7 +62,7 @@ export function PropertyPanel() {
       <Panel header={<span style={{ fontWeight: 600 }}>データフロー</span>} featureId={featureId}>
         <Section title="基本">
           <Field label="ラベル（流れるデータの名称）">
-            <CommitTextField fullWidth value={edge.label} onCommit={(v) => useStore.getState().updateEdgeLabel(featureId, edge.id, v.trim())} slotProps={{ htmlInput: { 'aria-label': 'ラベル' } }} />
+            <CommitTextField fullWidth inputRef={labelRef} value={edge.label} onCommit={(v) => useStore.getState().updateEdgeLabel(featureId, edge.id, v.trim())} slotProps={{ htmlInput: { 'aria-label': 'ラベル' } }} />
           </Field>
           <Field label="入力元 → 出力先">
             <Typography>{name(edge.sourceNodeId)} → {name(edge.targetNodeId)}</Typography>
@@ -145,9 +148,33 @@ function ReadOnly({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * DFD でダブルクリックされたとき、返す ref の入力欄へフォーカスして全選択する。
+ * key（選択中のノード・データフロー）が変わってパネルが描き直されたあとに実行する。
+ */
+function useRequestedFocus(key: string, enabled = true) {
+  const ref = useRef<HTMLInputElement>(null);
+  const requested = useStore((s) => s.nameFocusRequested);
+  useEffect(() => {
+    if (!requested || !enabled) return;
+    const id = requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el && !el.disabled) {
+        el.focus();
+        el.select();
+      }
+      useStore.getState().clearNameFocusRequest();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [requested, key, enabled]);
+  return ref;
+}
+
 function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId: Id; nodeId: Id }) {
   const view = selectDfdNodes(doc, featureId).find((v) => v.nodeId === nodeId);
   const [connecting, setConnecting] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const nameRef = useRequestedFocus(nodeId);
   const s = useStore.getState();
   if (!view) return null;
   const feature = doc.features[featureId];
@@ -177,7 +204,7 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
       )}
       <Section title="基本">
         <Field label="名称">
-          <CommitTextField fullWidth required value={view.name} onCommit={(v) => update({ name: v.trim() })} disabled={readonly} slotProps={{ htmlInput: { 'aria-label': '名称' } }} />
+          <CommitTextField fullWidth required inputRef={nameRef} value={view.name} onCommit={(v) => update({ name: v.trim() })} disabled={readonly} slotProps={{ htmlInput: { 'aria-label': '名称' } }} />
         </Field>
         {view.kind && (
           <Field label="種別">
@@ -222,6 +249,14 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
           </Field>
         ) : (
           <Field label="機能"><ReadOnly>{featurePathLabel(doc, featureId)}</ReadOnly></Field>
+        )}
+        {(refType === 'dataFunction' || refType === 'externalEntity') && (
+          <Button
+            size="small" sx={{ mt: 1, ml: -1 }} onClick={() => setReplacing(true)}
+            title="重複して追加した要素を、既存の同種の要素への参照にまとめます"
+          >
+            既存の要素への参照に置き換え…
+          </Button>
         )}
       </Section>
       <Section title="接続">
@@ -282,6 +317,7 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
           </Box>
         )}
         {connecting && <ConnectDialog featureId={featureId} from={{ refType, refId }} onClose={() => setConnecting(false)} />}
+        {replacing && <ReplaceWithReferenceDialog featureId={featureId} nodeId={nodeId} onClose={() => setReplacing(false)} />}
       </Section>
       {result && <ResultSection doc={doc} featureId={featureId} />}
       <Section>

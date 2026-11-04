@@ -15,6 +15,7 @@ import { featuresInOrder, getFeaturePath, softwareIdOfFeature } from '../../doma
 import type { Id } from '../../domain/types';
 import { useStore } from '../../store';
 import { tokens } from '../app/theme';
+import { ellipsis } from '../common/ellipsis';
 
 /**
  * DFD を同じソフトウェア内の別の機能へコピーする（FR-DF-20）。
@@ -85,9 +86,11 @@ export function CopyDfdDialog({ sourceFeatureId, onClose }: { sourceFeatureId: I
                         '&:hover': { background: targetId === f.id ? tokens.primarySoft : '#F8F9FB' },
                       }}
                     >
-                      <span style={{ color: tokens.textSecondary, fontSize: 12 }}>{p.category1.name} / {p.category2.name} /</span>
-                      <span>{f.name}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textSecondary }}>{hasDfd ? `DFD あり（右側に追加）` : ''}</span>
+                      <span style={ellipsis({ flexShrink: 2, maxWidth: '45%', color: tokens.textSecondary, fontSize: 12 })} title={`${p.category1.name} / ${p.category2.name}`}>
+                        {p.category1.name} / {p.category2.name} /
+                      </span>
+                      <span style={ellipsis({ flex: 1 })} title={f.name}>{f.name}</span>
+                      {hasDfd && <span style={{ flexShrink: 0, fontSize: 12, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>DFD あり（右側に追加）</span>}
                     </ButtonBase>
                   );
                 })}

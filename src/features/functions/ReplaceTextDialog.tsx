@@ -14,6 +14,7 @@ import { planTextReplacements, type ReplaceCandidate } from '../../domain/textRe
 import type { Id } from '../../domain/types';
 import { useStore, type TextChange } from '../../store';
 import { tokens } from '../app/theme';
+import { ellipsis } from '../common/ellipsis';
 
 const FIELD_LABELS = { name: '名称', description: '説明', label: 'ラベル' } as const;
 
@@ -112,16 +113,21 @@ export function ReplaceTextDialog({ featureId, refIds, edgeIds, onClose }: { fea
                 <Box
                   key={p.key}
                   role="listitem"
-                  sx={{ display: 'grid', gridTemplateColumns: '28px 72px 56px 1fr', alignItems: 'center', gap: 2, px: 2, minHeight: 34, borderBottom: `1px solid ${tokens.border}`, '&:last-child': { borderBottom: 0 }, opacity: excluded.has(p.key) ? 0.5 : 1 }}
+                  sx={{ display: 'grid', gridTemplateColumns: '28px 88px 44px minmax(0, 1fr)', alignItems: 'center', gap: 2, px: 2, minHeight: 34, borderBottom: `1px solid ${tokens.border}`, '&:last-child': { borderBottom: 0 }, opacity: excluded.has(p.key) ? 0.5 : 1 }}
                 >
                   <Checkbox size="small" checked={!excluded.has(p.key)} onChange={() => toggle(p.key)} slotProps={{ input: { 'aria-label': `${p.before} を置換する` } }} />
-                  <span style={{ fontSize: 12, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>{p.displayNo === '—' ? p.kindLabel : `${p.displayNo} ${p.kindLabel}`}</span>
-                  <span style={{ fontSize: 12, color: tokens.textSecondary }}>{FIELD_LABELS[p.field]}</span>
-                  <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${p.before} → ${p.after}`}>
-                    <Highlight text={p.before} word={find} color="#FFE1E1" />
-                    <span style={{ color: tokens.textDisabled, margin: '0 8px' }}>→</span>
-                    <Highlight text={p.after} word={replace} color="#DDF3E4" />
+                  <span style={ellipsis({ fontSize: 12, color: tokens.textSecondary })} title={p.displayNo === '—' ? p.kindLabel : `${p.displayNo} ${p.kindLabel}`}>
+                    {p.displayNo === '—' ? p.kindLabel : `${p.displayNo} ${p.kindLabel}`}
                   </span>
+                  <span style={{ fontSize: 12, color: tokens.textSecondary }}>{FIELD_LABELS[p.field]}</span>
+                  {/* 置換前と置換後を 2 段に分け、長い文言でも両方が見えるようにする */}
+                  <Box sx={{ minWidth: 0, py: '4px', fontSize: 13, lineHeight: '18px' }} title={`${p.before} → ${p.after}`}>
+                    <div style={ellipsis()}><Highlight text={p.before} word={find} color="#FFE1E1" /></div>
+                    <div style={ellipsis()}>
+                      <span style={{ color: tokens.textDisabled, marginRight: 6 }}>→</span>
+                      <Highlight text={p.after} word={replace} color="#DDF3E4" />
+                    </div>
+                  </Box>
                 </Box>
               ))}
             </Box>

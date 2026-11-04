@@ -197,6 +197,10 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onConnectEnd={onConnectEnd}
+        // ダブルクリックでプロパティパネルの名称（データフローはラベル）を編集する
+        onNodeDoubleClick={(_, n) => { if (n.type !== 'boundary') useStore.getState().requestNameFocus([n.id], null); }}
+        onEdgeDoubleClick={(_, e) => useStore.getState().requestNameFocus([], e.id)}
+        zoomOnDoubleClick={false}
         isValidConnection={isValidConnection}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{ stroke: tokens.primary, strokeWidth: 1.5 }}
@@ -246,7 +250,7 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
           }}
         />
       )}
-      {refRequest && <ReferenceDialog featureId={featureId} position={refRequest.position} onClose={() => setRefRequest(null)} />}
+      {refRequest && <ReferenceDialog featureId={featureId} position={refRequest.position} onClose={() => setRefRequest(null)} onDuplicate={setAddRequest} />}
     </Box>
   );
 }

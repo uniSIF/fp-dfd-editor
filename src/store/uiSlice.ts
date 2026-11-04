@@ -17,6 +17,7 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
     backupAvailable: true,
     copyDfd: null,
     replaceText: null,
+    nameFocusRequested: false,
 
     selectSoftware: (id) =>
       set((s) => {
@@ -55,5 +56,13 @@ export function createUiSlice(set: ImmerSet, _get: Get): UiSlice {
     setBackupAvailable: (v) => set((s) => { s.backupAvailable = v; }),
     openCopyDfd: (id) => set((s) => { s.copyDfd = id ? { sourceFeatureId: id } : null; }),
     openReplaceText: (r) => set((s) => { s.replaceText = r; }),
+    requestNameFocus: (nodeIds, edgeId) =>
+      set((s) => {
+        s.selectedNodeIds = nodeIds;
+        s.selectedEdgeId = edgeId;
+        s.propertyTarget = 'node';
+        s.nameFocusRequested = true;
+      }),
+    clearNameFocusRequest: () => set((s) => { s.nameFocusRequested = false; }),
   };
 }

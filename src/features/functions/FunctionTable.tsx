@@ -10,7 +10,7 @@ import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { DataGrid, type GridColDef, type GridRenderCellParams } from '@mui/x-data-grid';
+import { DataGrid, GridEditSingleSelectCell, useGridApiContext, type GridColDef, type GridRenderCellParams, type GridRenderEditCellParams } from '@mui/x-data-grid';
 import { useState } from 'react';
 import { nodeSize } from '../../domain/dfdGeometry';
 import { COMPLEXITIES, COMPLEXITY_LABELS } from '../../domain/fpTables';
@@ -79,6 +79,19 @@ function duplicateRequest(featureId: Id, row: FunctionRow): AddRequest {
   };
 }
 
+/** 選択肢を選んだ時点で編集を確定する（DataGrid v9 は選んでもセルが編集中のまま残る） */
+function SelectEditCell(params: GridRenderEditCellParams<FunctionRow>) {
+  const apiRef = useGridApiContext();
+  return (
+    <GridEditSingleSelectCell
+      {...params}
+      onValueChange={async () => {
+        await apiRef.current.stopCellEditMode({ id: params.id, field: params.field });
+      }}
+    />
+  );
+}
+
 const kindOptions = (row: FunctionRow) => (row.refType === 'dataFunction' ? ['ILF', 'EIF'] : ['EI', 'EO', 'EQ']);
 
 /** ファンクション表タブ（FR-FN-01〜12、design.md 7.3） */
@@ -121,13 +134,15 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
       ),
     },
     {
-      field: 'kind', headerName: '種別', width: 64, editable: true, sortable: false, type: 'singleSelect',
+      field: 'kind', headerName: '種別', width: 72, editable: true, sortable: false, type: 'singleSelect',
       valueOptions: ({ row }) => (row ? kindOptions(row) : []),
+      renderEditCell: (p) => <SelectEditCell {...p} />,
       valueFormatter: (v) => v ?? '—',
     },
     {
-      field: 'complexity', headerName: '複雑度', width: 64, editable: true, sortable: false, type: 'singleSelect',
+      field: 'complexity', headerName: '複雑度', width: 72, editable: true, sortable: false, type: 'singleSelect',
       valueOptions: COMPLEXITIES.map((c) => ({ value: c, label: COMPLEXITY_LABELS[c] })),
+      renderEditCell: (p) => <SelectEditCell {...p} />,
       valueFormatter: (v: Complexity | null) => (v ? COMPLEXITY_LABELS[v] : '—'),
     },
     { field: 'fp', headerName: 'FP', width: 52, align: 'right', headerAlign: 'right', sortable: false, valueFormatter: (v: number | null) => (v === null ? '—' : String(v)) },
@@ -272,7 +287,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           }}
         />
       )}
-      {ref && <ReferenceDialog featureId={featureId} onClose={() => setRef(false)} />}
+      {ref && <ReferenceDialog featureId={featureId} onClose={() => setRef(false)} onDuplicate={setAdd} />}
       {connectFrom && <ConnectDialog featureId={featureId} from={connectFrom} onClose={() => setConnectFrom(null)} />}
     </Box>
   );

@@ -879,6 +879,9 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-13〜14 | 6.7 |
 | FR-DF-15 | 10 |
 | FR-DF-20 | 4.2（`copyDfdToFeature`）、`features/functions/CopyDfdDialog.tsx` |
+| FR-DF-21 | `features/dfd/ReferenceDialog.tsx`（「複製して配置」）→ `AddFunctionDialog`（`duplicateOf`）→ 4.2（`add*Function` / `addExternalEntity`） |
+| FR-DF-22 | 4.2（`replaceWithReference`）、`features/dfd/ReplaceWithReferenceDialog.tsx`（プロパティパネルから開く） |
+| FR-DF-23 | UI スライス（`requestNameFocus` / `nameFocusRequested`）、`DfdCanvas.tsx`（`onNodeDoubleClick` / `onEdgeDoubleClick`）、`PropertyPanel.tsx`（`useRequestedFocus`） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
@@ -960,6 +963,8 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
 | 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |
 | DFD のコピーと文言置換（FR-DF-20、FR-FN-17） | なし（要件追加） | `copyDfdToFeature` は 1 回の `mutate` でノード・実体・エッジを作り、作った実体とエッジの ID を返す。データファンクションは 1 つの DFD に 1 回までなので、コピー先に配置済みなら既存ノードへつなぐ。置換の候補は `planTextReplacements`（純粋関数）で作り、`applyTextReplacements` で 1 履歴にまとめて反映する。ダイアログの開閉はツリーのメニューからも開けるよう UI スライス（`copyDfd`、`replaceText`）で持つ | 似た機能の DFD を使い回し、重複した名前をその場で直せるようにするため |
+| 既存を複製して配置（FR-DF-21） | なし（要件追加） | 新しいストアのアクションは作らず、参照ダイアログで選んだ要素の内容を `AddRequest.duplicateOf` に入れて既存の追加ダイアログを開く。名称の編集と同名警告はファンクション表の「複製」と同じ処理を通る | 参照と違い名称を変えて別の要素として扱いたい場合に、追加の手間を減らすため |
+| 既存の要素への参照に置き換え（FR-DF-22） | なし（要件追加） | `replaceWithReference` はノードの `refId` を付け替える（ノード ID とデータフローは保つ）。データファンクションは 1 DFD に 1 回までなので、置き換え先が配置済みならデータフローをそのノードへ付け替え、自己ループと同じ向き・ラベルの重複を捨ててから元のノードを消す。元の要素の削除は、置き換え後にどの DFD にも配置されていない場合だけ行う | 別の番号で重複して追加した要素を、DFD を描き直さずにまとめるため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。
