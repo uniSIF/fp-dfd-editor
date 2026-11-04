@@ -59,9 +59,10 @@ test('CSV・SVG・保存ファイルの内容（FR-CSV、FR-SVG、FR-SV-01）', 
   const svg = readFileSync((await svgDl.path())!, 'utf-8');
   const parsed = await page.evaluate((text) => {
     const d = new DOMParser().parseFromString(text, 'image/svg+xml');
-    return { error: d.getElementsByTagName('parsererror').length, circles: d.getElementsByTagName('circle').length };
+    // プロセスは名称の長さで横長になるため楕円で描く
+    return { error: d.getElementsByTagName('parsererror').length, processes: d.getElementsByTagName('ellipse').length };
   }, svg);
-  expect(parsed).toEqual({ error: 0, circles: 3 });
+  expect(parsed).toEqual({ error: 0, processes: 3 });
 
   const [jsonDl] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('ControlOrMeta+s')]);
   expect(jsonDl.suggestedFilename()).toBe('サンプルプロジェクト.fpdfd.json');
@@ -718,6 +719,42 @@ test('ファンクション表で複数選んで、文言を置換しながら�
   await expect.poll(() => page.evaluate(() => (window as unknown as { __store: { getState: () => { selectedFeatureId: string } } }).__store.getState().selectedFeatureId)).toBe('fItem');
   await expect(page.getByRole('row').filter({ hasText: '顧客検索' })).toHaveCount(1);
   await expect(page.getByRole('row').filter({ hasText: '商品マスタ' })).toHaveCount(1);
+});
+
+test('DFD の要素は名称を省略せず、2 行に収まるよう横に伸びる', async ({ page }) => {
+  await openSample(page);
+  const long = {
+    n1: '窓口担当者および外部委託オペレータ',
+    n2: '顧客情報の新規登録画面からの入力受付と検証',
+    n5: '顧客マスタ（法人・個人の契約情報と請求先情報を含む）',
+  };
+  const sizeOf = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox();
+  const before = { n1: (await sizeOf('n1'))!, n2: (await sizeOf('n2'))!, n5: (await sizeOf('n5'))! };
+  await page.evaluate(() => {
+    const s = (window as unknown as { __store: { getState: () => Record<string, (id: string, p: { name: string }) => void> } }).__store.getState();
+    s.updateExternalEntity('ee1', { name: '窓口担当者および外部委託オペレータ' });
+    s.updateTransactionFunction('tf1', { name: '顧客情報の新規登録画面からの入力受付と検証' });
+    s.updateDataFunction('df1', { name: '顧客マスタ（法人・個人の契約情報と請求先情報を含む）' });
+  });
+  for (const [id, name] of Object.entries(long) as [keyof typeof long, string][]) {
+    const node = page.locator(`.react-flow__node[data-id="${id}"]`);
+    await expect(node).toContainText(name);
+    const after = (await node.boundingBox())!;
+    // 高さは変えず、横に伸びる（画面上の大きさはズーム率がかかる）
+    expect(after.width).toBeGreaterThan(before[id].width + 10);
+    expect(Math.abs(after.height - before[id].height)).toBeLessThan(1);
+    // 名称は 2 行以内で、行数制限による省略が起きていない
+    const label = await node.evaluate((el, n) => {
+      const span = [...el.querySelectorAll('span')].find((x) => x.textContent === n)!;
+      const lh = parseFloat(getComputedStyle(span).lineHeight);
+      return { clipped: span.scrollHeight > span.clientHeight + 1, lines: Math.round(span.clientHeight / lh) };
+    }, name);
+    expect(label.clipped).toBe(false);
+    expect(label.lines).toBeLessThanOrEqual(2);
+  }
+  // 短い名称（登録完了通知）は既定の大きさのまま（名称を変える前の n2 と同じ 88px の円）
+  const short = page.locator('.react-flow__node[data-id="n3"]');
+  expect(Math.abs((await short.boundingBox())!.width - before.n2.width)).toBeLessThan(1);
 });
 
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {

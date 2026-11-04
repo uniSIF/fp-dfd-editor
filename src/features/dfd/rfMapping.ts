@@ -10,7 +10,7 @@ import type { DfdRfNode } from './nodes/DfdNodes';
 export function toRfNodes(view: DfdNodeView[], selectedNodeIds: Id[]): DfdRfNode[] {
   const sel = new Set(selectedNodeIds);
   return view.map((v) => {
-    const size = nodeSize(v.refType);
+    const size = nodeSize(v.refType, v.name);
     return {
       id: v.nodeId,
       type: v.refType,
@@ -45,7 +45,7 @@ export const BOUNDARY_NODE_ID = '__boundary__';
  */
 export function withBoundary(nodes: DfdRfNode[], softwareName: string): DfdRfNode[] {
   const b = computeBoundary(
-    nodes.map((n) => ({ refType: n.data.refType, x: n.position.x, y: n.position.y, kind: n.data.kind })),
+    nodes.map((n) => ({ refType: n.data.refType, x: n.position.x, y: n.position.y, kind: n.data.kind, name: n.data.name })),
   );
   if (!b) return nodes;
   const boundary = {

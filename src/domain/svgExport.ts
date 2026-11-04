@@ -1,7 +1,7 @@
-import { BADGE_COLORS, BOUNDARY, COLORS, GEOMETRY, boxCenter, clipToBoundary, computeBoundary, nodeBox, wrapLabel, type Box } from './dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, COLORS, GEOMETRY, boxCenter, clipToBoundary, computeBoundary, nodeBox, nodeLayout, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
-import { getFeaturePath } from './queries';
+import { getFeaturePath, refName } from './queries';
 import type { DfdNode, FpDocument, Id } from './types';
 
 function esc(s: string): string {
@@ -25,6 +25,19 @@ function badge(cx: number, cy: number, kind: keyof typeof BADGE_COLORS): string 
   );
 }
 
+/** 名称を 2 行に折り返す。ノードは名称に合わせた幅なので省略しない（nodeLayout） */
+function nameLines(refType: DfdNode['refType'], name: string): string[] {
+  return wrapLabel(name, nodeLayout(refType, name).lineUnits);
+}
+
+/** 名称（1〜2 行）と、その下の番号・複雑度の行を、まとめて縦中央に置く */
+function withSubLine(cx: number, cy: number, lines: string[], attrs: string, sub: string, subAttrs: string): string[] {
+  const lh = GEOMETRY.label.fontSize + 3;
+  const subH = 14;
+  const top = cy - (lines.length * lh + subH) / 2;
+  return [labelLines(cx, top + (lines.length * lh) / 2, lines, attrs), text(cx, top + lines.length * lh + subH - 2, sub, subAttrs)];
+}
+
 function labelLines(cx: number, cy: number, lines: string[], attrs: string): string {
   const lh = GEOMETRY.label.fontSize + 3;
   const top = cy - ((lines.length - 1) * lh) / 2;
@@ -42,7 +55,7 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
   const nodes = feature.dfd.nodes;
 
   const boxes = new Map<Id, Box>();
-  for (const n of nodes) boxes.set(n.id, nodeBox(n.refType, n.x, n.y));
+  for (const n of nodes) boxes.set(n.id, nodeBox(n.refType, n.x, n.y, refName(doc, n.refType, n.refId)));
 
   // 外接矩形（参照補記が下に出るデータストアは少し余裕を取る）
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -54,7 +67,7 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
   }
   // システム境界（FR-DF-19）も描画範囲に含める
   const boundary = (options.boundary ?? true)
-    ? computeBoundary(nodes.map((n) => ({ ...n, kind: n.refType === 'dataFunction' ? doc.dataFunctions[n.refId]?.kind : null })))
+    ? computeBoundary(nodes.map((n) => ({ ...n, name: refName(doc, n.refType, n.refId), kind: n.refType === 'dataFunction' ? doc.dataFunctions[n.refId]?.kind : null })))
     : null;
   if (boundary) {
     minX = Math.min(minX, boundary.x);
@@ -123,18 +136,17 @@ function renderNode(doc: FpDocument, n: DfdNode, b: Box, featureId: Id): string 
       const tf = doc.transactionFunctions[n.refId];
       if (!tf) return '';
       return [
-        `<circle cx="${r(c.x)}" cy="${r(c.y)}" r="${GEOMETRY.process.radius}" fill="#fff" stroke="${COLORS.borderStrong}" stroke-width="1.5"/>`,
+        `<ellipse cx="${r(c.x)}" cy="${r(c.y)}" rx="${r(b.width / 2)}" ry="${r(b.height / 2)}" fill="#fff" stroke="${COLORS.borderStrong}" stroke-width="1.5"/>`,
         badge(c.x, b.y, tf.kind),
-        labelLines(c.x, c.y - 6, wrapLabel(tf.name, 7), `font-size="12" fill="${COLORS.text}" text-anchor="middle"`),
-        text(c.x, c.y + 20, `${tf.displayNo} · ${COMPLEXITY_LABELS[tf.complexity]}`, smallAttrs),
+        ...withSubLine(c.x, c.y, nameLines(n.refType, tf.name), `font-size="12" fill="${COLORS.text}" text-anchor="middle"`, `${tf.displayNo} · ${COMPLEXITY_LABELS[tf.complexity]}`, smallAttrs),
       ].join('');
     }
     case 'nonCountedProcess': {
       const p = doc.nonCountedProcesses[n.refId];
       if (!p) return '';
       return [
-        `<circle cx="${r(c.x)}" cy="${r(c.y)}" r="${GEOMETRY.process.radius}" fill="${COLORS.ncpFill}" stroke="${COLORS.borderStrong}" stroke-width="1.5" stroke-dasharray="6 4"/>`,
-        labelLines(c.x, c.y, wrapLabel(p.name, 7), `font-size="12" fill="${COLORS.textSecondary}" text-anchor="middle"`),
+        `<ellipse cx="${r(c.x)}" cy="${r(c.y)}" rx="${r(b.width / 2)}" ry="${r(b.height / 2)}" fill="${COLORS.ncpFill}" stroke="${COLORS.borderStrong}" stroke-width="1.5" stroke-dasharray="6 4"/>`,
+        labelLines(c.x, c.y, nameLines(n.refType, p.name), `font-size="12" fill="${COLORS.textSecondary}" text-anchor="middle"`),
       ].join('');
     }
     case 'dataFunction': {
@@ -146,8 +158,7 @@ function renderNode(doc: FpDocument, n: DfdNode, b: Box, featureId: Id): string 
         `<line x1="${r(b.x)}" y1="${r(b.y)}" x2="${r(b.x + b.width)}" y2="${r(b.y)}" stroke="${stroke}" stroke-width="1.5"/>`,
         `<line x1="${r(b.x)}" y1="${r(b.y + b.height)}" x2="${r(b.x + b.width)}" y2="${r(b.y + b.height)}" stroke="${stroke}" stroke-width="1.5"/>`,
         badge(b.x + 21, c.y, df.kind),
-        labelLines(c.x + 18, c.y - 6, wrapLabel(df.name, 9, 1), nameAttrs),
-        text(c.x + 18, c.y + 14, `${df.displayNo} · ${COMPLEXITY_LABELS[df.complexity]}`, smallAttrs),
+        ...withSubLine(c.x + 18, c.y, nameLines(n.refType, df.name), nameAttrs, `${df.displayNo} · ${COMPLEXITY_LABELS[df.complexity]}`, smallAttrs),
       ];
       if (df.ownerFeatureId !== featureId) {
         const owner = df.ownerFeatureId ? doc.features[df.ownerFeatureId]?.name ?? '' : '未設定';
@@ -163,7 +174,7 @@ function renderNode(doc: FpDocument, n: DfdNode, b: Box, featureId: Id): string 
       return [
         `<rect x="${r(b.x)}" y="${r(b.y)}" width="${b.width}" height="${b.height}" fill="#fff" stroke="${COLORS.text}" stroke-width="1.5"/>`,
         duplicate ? `<line data-duplicate="true" x1="${r(b.x)}" y1="${r(b.y + 12)}" x2="${r(b.x + 12)}" y2="${r(b.y)}" stroke="${COLORS.text}" stroke-width="1.5"/>` : '',
-        labelLines(c.x, c.y, wrapLabel(ee.name, 9), nameAttrs),
+        labelLines(c.x, c.y, nameLines(n.refType, ee.name), nameAttrs),
       ].join('');
     }
   }

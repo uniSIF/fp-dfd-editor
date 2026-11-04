@@ -300,7 +300,7 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
                 color="inherit"
                 onClick={() => {
                   const st = useStore.getState();
-                  const right = Math.max(...feature.dfd.nodes.map((n) => n.x + nodeSize(n.refType).width));
+                  const right = Math.max(...feature.dfd.nodes.map((n) => n.x + nodeSize(n.refType, refName(doc, n.refType, n.refId)).width));
                   const self = feature.dfd.nodes.find((n) => n.id === nodeId)!;
                   const r = st.placeNode(featureId, 'externalEntity', refId, { x: right + 80, y: self.y });
                   if (r.ok && r.id) st.setSelection([r.id], null);

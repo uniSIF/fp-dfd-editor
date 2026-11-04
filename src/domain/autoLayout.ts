@@ -24,13 +24,16 @@ type Pos = { x: number; y: number };
  * 4. EIF（外部インタフェースファイル）は境界の下の外側に並べる。
  *
  * kindOf でデータファンクションの種別を渡すと ILF / EIF を区別する。省略時はすべて内部（ILF）扱い。
+ * nameOf で名称を渡すと、名称の長さで変わるノードの大きさ（nodeLayout）を使って並べる。
  * 戻り値はノード左上座標。
  */
 export function layoutDfd(
   nodes: DfdNode[],
   edges: DfdEdge[],
   kindOf: (n: DfdNode) => FunctionKind | null | undefined = () => 'ILF',
+  nameOf: (n: DfdNode) => string = () => '',
 ): LayoutPosition[] {
+  const size = (n: DfdNode) => nodeSize(n.refType, nameOf(n));
   const kind = new Map(nodes.map((n) => [n.id, n.refType === 'dataFunction' ? kindOf(n) ?? 'ILF' : null]));
   const isEE = (n: DfdNode) => n.refType === 'externalEntity';
   const isEIF = (n: DfdNode) => n.refType === 'dataFunction' && kind.get(n.id) === 'EIF';
@@ -50,7 +53,7 @@ export function layoutDfd(
   const g = new dagre.graphlib.Graph({ multigraph: true });
   g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, ranker: 'network-simplex' });
   g.setDefaultEdgeLabel(() => ({}));
-  for (const n of nodes) if (connected.has(n.id)) g.setNode(n.id, nodeSize(n.refType));
+  for (const n of nodes) if (connected.has(n.id)) g.setNode(n.id, size(n));
   edges.forEach((e, i) => {
     if (e.sourceNodeId !== e.targetNodeId && g.hasNode(e.sourceNodeId) && g.hasNode(e.targetNodeId)) {
       g.setEdge(e.sourceNodeId, e.targetNodeId, {}, `e${i}`);
@@ -62,13 +65,13 @@ export function layoutDfd(
   for (const n of nodes) {
     if (!connected.has(n.id)) continue;
     const p = g.node(n.id);
-    const { width, height } = nodeSize(n.refType);
+    const { width, height } = size(n);
     pos.set(n.id, { x: p.x - width / 2, y: p.y - height / 2 });
   }
 
   // 2. 未接続の内部要素は、接続された内部要素の下段に並べる
   const internalBox = () =>
-    computeBoundary(nodes.filter((n) => isInside(n) && pos.has(n.id)).map((n) => ({ refType: n.refType, kind: kind.get(n.id), ...pos.get(n.id)! })));
+    computeBoundary(nodes.filter((n) => isInside(n) && pos.has(n.id)).map((n) => ({ refType: n.refType, kind: kind.get(n.id), name: nameOf(n), ...pos.get(n.id)! })));
   const connectedInternal = internalBox();
   const isolatedInternal = nodes.filter((n) => isInside(n) && !connected.has(n.id));
   if (isolatedInternal.length) {
@@ -76,7 +79,7 @@ export function layoutDfd(
     const y = connectedInternal ? connectedInternal.y + connectedInternal.height + GAP : ORIGIN;
     for (const n of isolatedInternal) {
       pos.set(n.id, { x, y: y + (n.refType === 'dataFunction' ? 22 : 0) });
-      x += nodeSize(n.refType).width + GAP;
+      x += size(n).width + GAP;
     }
   }
 
@@ -88,24 +91,25 @@ export function layoutDfd(
     if (connected.has(n.id) && hasIn.has(n.id) && !hasOut.has(n.id)) right.push(n);
     else left.push(n);
   }
-  const placeColumn = (list: DfdNode[], x: number) => {
+  /** x は列の基準。alignRight なら各ノードの右端を x に揃える（左外の列） */
+  const placeColumn = (list: DfdNode[], x: number, alignRight = false) => {
     // dagre の縦位置の順を保ち、重ならないよう下へずらす
     const sorted = [...list].sort((a, b) => (pos.get(a.id)?.y ?? Infinity) - (pos.get(b.id)?.y ?? Infinity));
     let nextY = -Infinity;
     for (const n of sorted) {
-      const h = nodeSize(n.refType).height;
+      const { width: w, height: h } = size(n);
       const y = Math.max(pos.get(n.id)?.y ?? (box ? box.y + box.height : ORIGIN), nextY);
-      pos.set(n.id, { x, y });
+      pos.set(n.id, { x: alignRight ? x - w : x, y });
       nextY = y + h + GAP;
     }
   };
-  const eeW = nodeSize('externalEntity').width;
+  const leftW = Math.max(nodeSize('externalEntity').width, ...left.map((n) => size(n).width));
   if (box) {
-    placeColumn(left, box.x - OUTSIDE_GAP - eeW);
+    placeColumn(left, box.x - OUTSIDE_GAP, true);
     placeColumn(right, box.x + box.width + OUTSIDE_GAP);
   } else {
-    placeColumn(left, ORIGIN);
-    placeColumn(right, ORIGIN + eeW + OUTSIDE_GAP * 2);
+    placeColumn(left, ORIGIN + leftW, true);
+    placeColumn(right, ORIGIN + leftW + OUTSIDE_GAP * 2);
   }
 
   // 4. EIF は境界の下の外側に並べる
@@ -115,7 +119,7 @@ export function layoutDfd(
     const y = box ? box.y + box.height + OUTSIDE_GAP : ORIGIN;
     for (const n of eifs) {
       pos.set(n.id, { x, y });
-      x += nodeSize(n.refType).width + GAP;
+      x += size(n).width + GAP;
     }
   }
 

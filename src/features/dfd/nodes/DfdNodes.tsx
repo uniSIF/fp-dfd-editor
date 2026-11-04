@@ -1,15 +1,13 @@
 import Tooltip from '@mui/material/Tooltip';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import { BADGE_COLORS, BOUNDARY, GEOMETRY } from '../../../domain/dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, GEOMETRY, nodeLayout } from '../../../domain/dfdGeometry';
 import { COMPLEXITY_LABELS } from '../../../domain/fpTables';
 import type { DfdNodeView } from '../../../store/selectors';
 import { tokens } from '../../app/theme';
 import { WarningIcon } from '../../common/WarningIcon';
 
 export type DfdRfNode = Node<DfdNodeView & Record<string, unknown>>;
-
-const R = GEOMETRY.process.radius;
 
 /** 4 方向の接続ハンドル（ConnectionMode.Loose で source 同士も接続できる） */
 function Handles() {
@@ -58,12 +56,16 @@ function WarningMark({ text, style }: { text: string | null; style: CSSPropertie
   );
 }
 
-function Label({ children, color = tokens.text, lines = 2, size = GEOMETRY.label.fontSize }: { children: ReactNode; color?: string; lines?: number; size?: number }) {
+/**
+ * 名称。nodeLayout が計算した 1 行の幅で 2 行に折り返す（ノードはその幅に合わせて横に伸びるので省略しない）。
+ * 計算は概算なので、はみ出す場合に備えて行数の上限は残す
+ */
+function Label({ children, color = tokens.text, size = GEOMETRY.label.fontSize, lineUnits }: { children: ReactNode; color?: string; size?: number; lineUnits: number }) {
   return (
     <span
       style={{
-        fontSize: size, color, lineHeight: 1.25, textAlign: 'center', display: '-webkit-box',
-        WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-all',
+        fontSize: size, color, lineHeight: 1.25, textAlign: 'center', display: '-webkit-box', maxWidth: lineUnits * size + 2,
+        WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-all',
       }}
     >
       {children}
@@ -83,18 +85,19 @@ export const ProcessNode = memo(function ProcessNode({ data, selected }: NodePro
   // 非計上プロセスは破線。border の一括指定に線種を含め、borderStyle と混在させない
   const dashed = ncp && !selected && !data.warning;
   const border = dashed ? o.border.replace('solid', 'dashed') : o.border;
+  const { width, height, lineUnits, fontSize } = nodeLayout(data.refType, data.name);
   return (
     <div
       className="dfd-node"
       title={data.name}
       style={{
-        width: R * 2, height: R * 2, borderRadius: '50%', boxSizing: 'border-box', background: ncp ? '#F1F3F5' : '#fff',
+        width, height, borderRadius: '50%', boxSizing: 'border-box', background: ncp ? '#F1F3F5' : '#fff',
         border, boxShadow: o.boxShadow,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 3, position: 'relative',
       }}
     >
       {data.kind && <Badge kind={data.kind} style={{ top: -22, left: '50%', transform: 'translateX(-50%)' }} />}
-      <Label color={ncp ? tokens.textSecondary : tokens.text} size={12}>{data.name}</Label>
+      <Label color={ncp ? tokens.textSecondary : tokens.text} size={fontSize} lineUnits={lineUnits}>{data.name}</Label>
       {data.displayNo && (
         <span style={{ fontSize: 11, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>
           {data.displayNo} · {data.complexity ? COMPLEXITY_LABELS[data.complexity] : ''}
@@ -108,7 +111,7 @@ export const ProcessNode = memo(function ProcessNode({ data, selected }: NodePro
 });
 
 export const DataStoreNode = memo(function DataStoreNode({ data, selected }: NodeProps<DfdRfNode>) {
-  const { width, height } = GEOMETRY.dataStore;
+  const { width, height, lineUnits } = nodeLayout('dataFunction', data.name);
   const color = selected ? tokens.primary : data.warning ? tokens.warning : tokens.borderStrong;
   const w = selected || data.warning ? 2 : 1.5;
   return (
@@ -123,7 +126,7 @@ export const DataStoreNode = memo(function DataStoreNode({ data, selected }: Nod
     >
       {data.kind && <Badge kind={data.kind} style={{ left: 6, top: '50%', transform: 'translateY(-50%)' }} />}
       <span style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
-        <Label lines={1}>{data.name}</Label>
+        <Label lineUnits={lineUnits}>{data.name}</Label>
         {data.displayNo && (
           <span style={{ fontSize: 11, color: tokens.textSecondary, whiteSpace: 'nowrap' }}>
             {data.displayNo} · {data.complexity ? COMPLEXITY_LABELS[data.complexity] : ''}
@@ -143,7 +146,7 @@ export const DataStoreNode = memo(function DataStoreNode({ data, selected }: Nod
 });
 
 export const ExternalEntityNode = memo(function ExternalEntityNode({ data, selected }: NodeProps<DfdRfNode>) {
-  const { width, height } = GEOMETRY.externalEntity;
+  const { width, height, lineUnits } = nodeLayout('externalEntity', data.name);
   return (
     <div
       className="dfd-node"
@@ -153,7 +156,7 @@ export const ExternalEntityNode = memo(function ExternalEntityNode({ data, selec
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, position: 'relative',
       }}
     >
-      <Label>{data.name}</Label>
+      <Label lineUnits={lineUnits}>{data.name}</Label>
       {data.duplicate && <DuplicateMark />}
       <MemoIcon text={data.description} style={{ top: 3, right: 3 }} />
       <WarningMark text={data.warning} style={{ top: -18, left: 0 }} />

@@ -75,7 +75,7 @@ function duplicateRequest(featureId: Id, row: FunctionRow): AddRequest {
   const node = row.nodeId ? useStore.getState().doc.features[featureId].dfd.nodes.find((n) => n.id === row.nodeId) : undefined;
   return {
     kind: ADD_KIND[row.refType],
-    position: node ? { x: node.x, y: node.y + nodeSize(node.refType).height + 64 } : undefined,
+    position: node ? { x: node.x, y: node.y + nodeSize(node.refType, row.name).height + 64 } : undefined,
     duplicateOf: { name: row.name, kind: row.kind, complexity: row.complexity, description: row.description },
   };
 }

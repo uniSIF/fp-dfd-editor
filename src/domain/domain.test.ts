@@ -65,7 +65,7 @@ describe('svgExport（FR-SVG）', () => {
     const root = dom.documentElement;
     expect(root.getAttribute('viewBox')).toMatch(/^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$/);
     expect(root.getAttribute('font-family')).toContain('Hiragino Sans');
-    expect(dom.getElementsByTagName('circle')).toHaveLength(3); // TF 3 件
+    expect(dom.getElementsByTagName('ellipse')).toHaveLength(3); // TF 3 件（名称が長いと横長になるので楕円）
     expect(dom.querySelectorAll('line[marker-end]')).toHaveLength(7);
     expect(svg).toContain('所有: 商品登録'); // 参照補記
     expect(svg).toContain('顧客管理システム / 顧客管理 / 顧客情報 / 顧客登録'); // タイトル
@@ -108,6 +108,26 @@ describe('dfdGeometry', () => {
   it('ラベルを 2 行に折り返し、超過分は省略する', () => {
     expect(wrapLabel('顧客登録入力', 6)).toEqual(['顧客登録入力']);
     expect(wrapLabel('とても長い名前のプロセスです', 6)).toEqual(['とても長い名', '前のプロセ…']);
+  });
+
+  it('ノードは名称が 2 行に収まるよう横に伸び、名称は省略しない（高さは固定）', async () => {
+    const { nodeLayout, nodeSize, wrapLabel: wrap } = await import('./dfdGeometry');
+    // 短い名称は既定の大きさ
+    expect(nodeSize('transactionFunction', '顧客登録')).toEqual({ width: 88, height: 88 });
+    expect(nodeSize('dataFunction', '顧客マスタ')).toEqual({ width: 180, height: 60 });
+    expect(nodeSize('externalEntity', '利用者')).toEqual({ width: 140, height: 60 });
+    for (const refType of ['transactionFunction', 'nonCountedProcess', 'dataFunction', 'externalEntity'] as const) {
+      for (const name of ['顧客情報の新規登録画面からの入力受付と顧客情報の検証', 'Customer master (corporate and individual)', '在庫ｶﾅ混在の名称テスト']) {
+        const l = nodeLayout(refType, name);
+        const lines = wrap(name, l.lineUnits);
+        expect(lines.length).toBeLessThanOrEqual(2);
+        expect(lines.join('')).toBe(name);
+        expect(l.height).toBe(nodeSize(refType).height);
+        expect(l.width).toBeGreaterThanOrEqual(nodeSize(refType).width);
+      }
+      // 長い名称では既定より横に伸びる
+      expect(nodeSize(refType, '顧客情報の新規登録画面からの入力受付と顧客情報の検証').width).toBeGreaterThan(nodeSize(refType).width);
+    }
   });
 });
 
@@ -219,10 +239,10 @@ describe('システム境界（FR-DF-19）', () => {
     const b = computeBoundary([
       { refType: 'externalEntity', x: 0, y: 0 },
       { refType: 'transactionFunction', x: 200, y: 100 }, // 88x88
-      { refType: 'dataFunction', kind: 'ILF', x: 400, y: 300 }, // 180x44
+      { refType: 'dataFunction', kind: 'ILF', x: 400, y: 300 }, // 180x60
       { refType: 'dataFunction', kind: 'EIF', x: 900, y: 900 },
     ])!;
-    expect(b).toEqual({ x: 168, y: 44, width: 612 - 168, height: 380 - 44 });
+    expect(b).toEqual({ x: 168, y: 44, width: 612 - 168, height: 396 - 44 });
     expect(computeBoundary([{ refType: 'externalEntity', x: 0, y: 0 }])).toBeNull();
   });
 });

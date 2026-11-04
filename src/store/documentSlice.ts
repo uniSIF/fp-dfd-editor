@@ -3,7 +3,7 @@ import { canConnect, canConnectNodes, canPlaceMultiple, ruleKindOf } from '../do
 import { findFreePosition, nodeSize } from '../domain/dfdGeometry';
 import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
-import { softwareIdOfFeature } from '../domain/queries';
+import { refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import type { DfdNode, FpDocument, Id, NodeRefType } from '../domain/types';
 import type { ActionResult, AppState, DocumentSlice, EntityRef, PlaceOption } from './types';
@@ -26,11 +26,25 @@ function nextDisplayNo(doc: FpDocument, softwareId: Id, prefix: 'DF' | 'TF' | 'E
   return no;
 }
 
+/** ノードの大きさは名称で変わる（nodeLayout）。配置計算に渡すため名称を添える */
+function named(doc: FpDocument, nodes: DfdNode[]): (DfdNode & { name: string })[] {
+  return nodes.map((n) => ({ ...n, name: refName(doc, n.refType, n.refId) }));
+}
+
+function sizeOf(doc: FpDocument, n: { refType: NodeRefType; refId: Id }): { width: number; height: number } {
+  return nodeSize(n.refType, refName(doc, n.refType, n.refId));
+}
+
+/** 既存ノードと重ならない位置（置く要素の名称から大きさを求める） */
+function freePosition(doc: FpDocument, nodes: DfdNode[], refType: NodeRefType, refId: Id, preferred?: { x: number; y: number }) {
+  return findFreePosition(named(doc, nodes), refType, preferred, undefined, refName(doc, refType, refId));
+}
+
 function placeOnDraft(doc: FpDocument, featureId: Id, refType: NodeRefType, refId: Id, place: PlaceOption | undefined): void {
   if (!place) return;
   const dfd = doc.features[featureId].dfd;
   if (dfd.nodes.some((n) => n.refType === refType && n.refId === refId)) return;
-  const pos = place === true ? findFreePosition(dfd.nodes, refType) : findFreePosition(dfd.nodes, refType, place);
+  const pos = freePosition(doc, dfd.nodes, refType, refId, place === true ? undefined : place);
   dfd.nodes.push({ id: newId(), refType, refId, x: pos.x, y: pos.y });
 }
 
@@ -390,7 +404,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       const nodeId = newId();
       mutate((d) => {
         const dfd = d.features[featureId].dfd;
-        const pos = findFreePosition(dfd.nodes, refType, position);
+        const pos = freePosition(d, dfd.nodes, refType, refId, position);
         dfd.nodes.push({ id: nodeId, refType, refId, x: pos.x, y: pos.y });
       });
       return { ok: true, id: nodeId };
@@ -440,8 +454,8 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         const ensure = (r: { refType: NodeRefType; refId: Id }, role: 'source' | 'target', near?: DfdNode): DfdNode => {
           const existing = find(r, role);
           if (existing) return existing;
-          const preferred = near ? { x: near.x + nodeSize(near.refType).width + 80, y: near.y } : undefined;
-          const pos = findFreePosition(dfd.nodes, r.refType, preferred);
+          const preferred = near ? { x: near.x + sizeOf(d, near).width + 80, y: near.y } : undefined;
+          const pos = freePosition(d, dfd.nodes, r.refType, r.refId, preferred);
           const node = { id: newId(), refType: r.refType, refId: r.refId, x: pos.x, y: pos.y };
           dfd.nodes.push(node);
           return node;
@@ -471,7 +485,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         // コピー先に既存のノードがあれば、その右側に並べる
         const srcMinX = Math.min(...src.nodes.map((n) => n.x));
         const srcMinY = Math.min(...src.nodes.map((n) => n.y));
-        const dx = dst.nodes.length ? Math.max(...dst.nodes.map((n) => n.x + nodeSize(n.refType).width)) + 160 - srcMinX : 0;
+        const dx = dst.nodes.length ? Math.max(...dst.nodes.map((n) => n.x + sizeOf(d, n).width)) + 160 - srcMinX : 0;
         const dy = dst.nodes.length ? Math.min(...dst.nodes.map((n) => n.y)) - srcMinY : 0;
         const nodeMap = new Map<Id, Id>();
         /** 複製したデータファンクション（同じ元から 1 つだけ作る） */
@@ -546,7 +560,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         const srcNodes = src.nodes.filter((n) => selected.has(key(n)));
         // コピー元の並びを保ったまま、コピー先の既存ノードの右側に置く
         const dx = srcNodes.length && dst.nodes.length
-          ? Math.max(...dst.nodes.map((n) => n.x + nodeSize(n.refType).width)) + 160 - Math.min(...srcNodes.map((n) => n.x))
+          ? Math.max(...dst.nodes.map((n) => n.x + sizeOf(d, n).width)) + 160 - Math.min(...srcNodes.map((n) => n.x))
           : 0;
         const dy = srcNodes.length && dst.nodes.length ? Math.min(...dst.nodes.map((n) => n.y)) - Math.min(...srcNodes.map((n) => n.y)) : 0;
 
@@ -592,7 +606,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
 
         const place = (refType: NodeRefType, refId: Id, at?: { x: number; y: number }) => {
           const id = newId();
-          const pos = at ?? findFreePosition(dst.nodes, refType);
+          const pos = at ?? freePosition(d, dst.nodes, refType, refId);
           dst.nodes.push({ id, refType, refId, x: pos.x, y: pos.y });
           nodeIds.push(id);
           return id;
@@ -662,8 +676,8 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       const newNodeId = newId();
       mutate((d) => {
         const g = d.features[featureId].dfd;
-        const right = Math.max(...g.nodes.map((n) => n.x + nodeSize(n.refType).width));
-        const pos = findFreePosition(g.nodes, 'externalEntity', { x: right + 80, y: node.y });
+        const right = Math.max(...g.nodes.map((n) => n.x + sizeOf(d, n).width));
+        const pos = freePosition(d, g.nodes, 'externalEntity', node.refId, { x: right + 80, y: node.y });
         g.nodes.push({ id: newNodeId, refType: 'externalEntity', refId: node.refId, x: pos.x, y: pos.y });
         const ids = new Set(incoming.map((e) => e.id));
         for (const e of g.edges) if (ids.has(e.id)) e.targetNodeId = newNodeId;
@@ -731,7 +745,8 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       mutate((d) => {
         const dfd = d.features[featureId].dfd;
         const kindOf = (n: DfdNode) => (n.refType === 'dataFunction' ? d.dataFunctions[n.refId]?.kind : null);
-        const pos = new Map(layoutDfd(dfd.nodes, dfd.edges, kindOf).map((p) => [p.nodeId, p]));
+        const nameOf = (n: DfdNode) => refName(d, n.refType, n.refId);
+        const pos = new Map(layoutDfd(dfd.nodes, dfd.edges, kindOf, nameOf).map((p) => [p.nodeId, p]));
         for (const n of dfd.nodes) {
           const p = pos.get(n.id);
           if (p) {
