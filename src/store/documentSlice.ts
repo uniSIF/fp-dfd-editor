@@ -5,6 +5,7 @@ import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
 import { refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
+import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
 import type { DataFunctionKind, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
 import type { ActionResult, AppState, DocumentSlice, EntityRef, PlaceOption } from './types';
 
@@ -659,39 +660,78 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       });
       return { ok: true, created, nodeIds, edgeIds };
     },
-    applyImportPlan: (featureId, plan, { layout }) => {
+    applyImportPlan: (softwareId, plan, { layout }) => {
       if (plan.errors.length) return { ok: false, reason: plan.errors[0] };
-      if (!get().doc.features[featureId]) return { ok: false, reason: '機能が見つかりません。' };
+      if (!get().doc.softwares[softwareId]) return { ok: false, reason: 'ソフトウェアが見つかりません。' };
       let created = 0;
+      const featureIds: Id[] = [];
       mutate((d) => {
-        const swId = requireSoftwareId(d, featureId);
-        const dfd = () => d.features[featureId].dfd;
-        // 1. 出力にない要素・データフローの削除（削除を選んだときだけプランに入っている）
-        const removedEdges = new Set(plan.edgeRemovals.map((e) => e.edgeId));
-        dfd().edges = dfd().edges.filter((e) => !removedEdges.has(e.id));
-        for (const r of plan.removals) {
-          // 他の機能も置いている DF は実体を残し、この DFD から外すだけにする
-          if (r.mode === 'delete' && !blockingReferences(d, r.refType, r.refId, featureId)) deleteEntityOnDraft(d, r.refType, r.refId);
-          else removeNodesFromDfd(d, featureId, (n) => n.refType === r.refType && n.refId === r.refId);
+        // 1. 分類と新しい機能
+        const sw = d.softwares[softwareId];
+        const category2Of = (c1Name: string, c2Name: string): Id => {
+          let c1 = sw.category1Ids.map((id) => d.category1s[id]).find((c) => c.name === c1Name);
+          if (!c1) {
+            const id = newId();
+            c1 = d.category1s[id] = { id, softwareId, name: c1Name, category2Ids: [] };
+            sw.category1Ids.push(id);
+          }
+          let c2 = c1.category2Ids.map((id) => d.category2s[id]).find((c) => c.name === c2Name);
+          if (!c2) {
+            const id = newId();
+            c2 = d.category2s[id] = { id, category1Id: c1.id, name: c2Name, featureIds: [] };
+            c1.category2Ids.push(id);
+          }
+          return c2.id;
+        };
+        const featureOf = new Map<string, Id>();
+        for (const fp of plan.features) {
+          if (fp.featureId) {
+            featureOf.set(fp.key, fp.featureId);
+            Object.assign(d.features[fp.featureId], fp.featurePatch);
+            continue;
+          }
+          const id = newId();
+          const category2Id = category2Of(fp.category1, fp.category2);
+          d.features[id] = {
+            id, category2Id, name: fp.name, devType: fp.devType, characteristics: [...sw.settings.defaultCharacteristics],
+            vendorId: null, description: fp.description, dfd: { nodes: [], edges: [] },
+          };
+          d.category2s[category2Id].featureIds.push(id);
+          featureOf.set(fp.key, id);
         }
-        // 2. 新しい要素を作る
+        // 2. 出力にない要素・データフローの削除（削除を選んだときだけプランに入っている）
+        for (const fp of plan.features) {
+          if (!fp.featureId) continue;
+          const g = d.features[fp.featureId].dfd;
+          const removedEdges = new Set(fp.edgeRemovals.map((e) => e.edgeId));
+          g.edges = g.edges.filter((e) => !removedEdges.has(e.id));
+          for (const r of fp.removals) {
+            // 他の機能も置いている DF は実体を残し、この DFD から外すだけにする
+            if (r.mode === 'delete' && !blockingReferences(d, r.refType, r.refId, fp.featureId)) deleteEntityOnDraft(d, r.refType, r.refId);
+            else removeNodesFromDfd(d, fp.featureId, (n) => n.refType === r.refType && n.refId === r.refId);
+          }
+        }
+        // 3. 新しい要素
         const refOf = new Map<string, { refType: NodeRefType; refId: Id }>();
         for (const c of plan.creates) {
           const id = newId();
+          const fid = c.featureKey ? featureOf.get(c.featureKey)! : null;
           if (c.refType === 'transactionFunction') {
-            d.transactionFunctions[id] = { id, featureId, displayNo: nextDisplayNo(d, swId, 'TF'), name: c.name, kind: c.kind as TransactionKind, complexity: c.complexity!, description: c.description };
+            d.transactionFunctions[id] = { id, featureId: fid!, displayNo: nextDisplayNo(d, softwareId, 'TF'), name: c.name, kind: c.kind as TransactionKind, complexity: c.complexity!, description: c.description };
           } else if (c.refType === 'dataFunction') {
-            d.dataFunctions[id] = { id, softwareId: swId, displayNo: nextDisplayNo(d, swId, 'DF'), name: c.name, kind: c.kind as DataFunctionKind, complexity: c.complexity!, ownerFeatureId: featureId, description: c.description };
+            d.dataFunctions[id] = {
+              id, softwareId, displayNo: nextDisplayNo(d, softwareId, 'DF'), name: c.name, kind: c.kind as DataFunctionKind, complexity: c.complexity!,
+              ownerFeatureId: fid ?? c.ownerFeatureId ?? null, description: c.description,
+            };
           } else if (c.refType === 'nonCountedProcess') {
-            d.nonCountedProcesses[id] = { id, featureId, name: c.name, description: c.description };
+            d.nonCountedProcesses[id] = { id, featureId: fid!, name: c.name, description: c.description };
           } else {
-            d.externalEntities[id] = { id, softwareId: swId, displayNo: nextDisplayNo(d, swId, 'EE'), name: c.name, description: c.description };
+            d.externalEntities[id] = { id, softwareId, displayNo: nextDisplayNo(d, softwareId, 'EE'), name: c.name, description: c.description };
           }
           refOf.set(c.key, { refType: c.refType, refId: id });
           created += 1;
         }
-        for (const el of plan.elements) if ('refId' in el.target) refOf.set(el.key, el.target);
-        // 3. 既存の要素の変更
+        // 4. 既存の要素の変更
         for (const u of plan.updates) {
           const target =
             u.refType === 'dataFunction' ? d.dataFunctions[u.refId]
@@ -700,32 +740,80 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
                   : d.externalEntities[u.refId];
           if (target) Object.assign(target, u.patch);
         }
-        // 4. DFD に置いていない要素を置く
-        for (const r of refOf.values()) {
-          if (!dfd().nodes.some((n) => n.refType === r.refType && n.refId === r.refId)) {
-            const pos = freePosition(d, dfd().nodes, r.refType, r.refId);
-            dfd().nodes.push({ id: newId(), refType: r.refType, refId: r.refId, x: pos.x, y: pos.y });
+        // 5. 機能ごとに、要素を DFD に置いてデータフローでつなぐ
+        for (const fp of plan.features) {
+          const fid = featureOf.get(fp.key)!;
+          const g = () => d.features[fid].dfd;
+          const resolve = (k: string) => {
+            if (refOf.has(k)) return refOf.get(k)!;
+            const p = fp.places.find((x) => x.key === k);
+            if (p) return { refType: p.refType, refId: p.refId };
+            // 置いてある既存の要素
+            const n = g().nodes.find((x) => entityKeyOnDraft(d, x.refType, x.refId) === k);
+            return n ? { refType: n.refType, refId: n.refId } : null;
+          };
+          for (const k of fp.elementKeys) {
+            const r = resolve(k);
+            if (r && !g().nodes.some((n) => n.refType === r.refType && n.refId === r.refId)) {
+              const pos = freePosition(d, g().nodes, r.refType, r.refId);
+              g().nodes.push({ id: newId(), refType: r.refType, refId: r.refId, x: pos.x, y: pos.y });
+            }
           }
+          // 外部エンティティを複数置いている場合は、入力元は左端・出力先は右端のノードを使う
+          const nodeFor = (k: string, role: 'source' | 'target') => {
+            const r = resolve(k);
+            const list = r ? g().nodes.filter((n) => n.refType === r.refType && n.refId === r.refId) : [];
+            if (!list.length) return undefined;
+            return list.reduce((a, b) => (role === 'source' ? (b.x < a.x ? b : a) : (b.x > a.x ? b : a)));
+          };
+          for (const u of fp.edgeLabelUpdates) {
+            const e = g().edges.find((x) => x.id === u.edgeId);
+            if (e) e.label = u.label;
+          }
+          for (const f of fp.edgeAdds) {
+            const a = nodeFor(f.from, 'source');
+            const b = nodeFor(f.to, 'target');
+            if (a && b && a.id !== b.id) g().edges.push({ id: newId(), sourceNodeId: a.id, targetNodeId: b.id, label: f.label });
+          }
+          if (layout && featurePlanHasChanges(fp)) layoutOnDraft(d, fid);
+          featureIds.push(fid);
         }
-        // 5. データフロー。外部エンティティを複数置いている場合は、入力元は左端・出力先は右端のノードを使う
-        const nodeFor = (k: string, role: 'source' | 'target') => {
-          const r = refOf.get(k);
-          const list = r ? dfd().nodes.filter((n) => n.refType === r.refType && n.refId === r.refId) : [];
-          if (!list.length) return undefined;
-          return list.reduce((a, b) => (role === 'source' ? (b.x < a.x ? b : a) : (b.x > a.x ? b : a)));
-        };
-        for (const u of plan.edgeLabelUpdates) {
-          const e = dfd().edges.find((x) => x.id === u.edgeId);
-          if (e) e.label = u.label;
-        }
-        for (const f of plan.edgeAdds) {
-          const a = nodeFor(f.from, 'source');
-          const b = nodeFor(f.to, 'target');
-          if (a && b && a.id !== b.id) dfd().edges.push({ id: newId(), sourceNodeId: a.id, targetNodeId: b.id, label: f.label });
-        }
-        if (layout) layoutOnDraft(d, featureId);
       });
-      return { ok: true, created };
+      return { ok: true, created, featureIds };
+    },
+    placeReferences: (targetFeatureIds, refs) => {
+      const doc = get().doc;
+      const placed: Record<Id, number> = {};
+      let skipped = 0;
+      const shared = refs.filter((r) => r.refType === 'dataFunction' || r.refType === 'externalEntity');
+      // 置くものを先に決める（何も置かないときは履歴を積まない）
+      const todo: { featureId: Id; ref: EntityRef }[] = [];
+      for (const fid of targetFeatureIds) {
+        const f = doc.features[fid];
+        if (!f) continue;
+        const swId = softwareIdOfFeature(doc, fid);
+        placed[fid] = 0;
+        for (const r of shared) {
+          const entity = r.refType === 'dataFunction' ? doc.dataFunctions[r.refId] : doc.externalEntities[r.refId];
+          // 別のソフトウェアの要素と、置き済みの要素は飛ばす
+          if (!entity || entity.softwareId !== swId || f.dfd.nodes.some((n) => n.refType === r.refType && n.refId === r.refId)) {
+            skipped += 1;
+            continue;
+          }
+          todo.push({ featureId: fid, ref: r });
+          placed[fid] += 1;
+        }
+      }
+      if (todo.length) {
+        mutate((d) => {
+          for (const { featureId, ref } of todo) {
+            const nodes = d.features[featureId].dfd.nodes;
+            const pos = freePosition(d, nodes, ref.refType, ref.refId);
+            nodes.push({ id: newId(), refType: ref.refType, refId: ref.refId, x: pos.x, y: pos.y });
+          }
+        });
+      }
+      return { placed, skipped };
     },
     applyTextReplacements: (changes) => {
       if (!changes.length) return;

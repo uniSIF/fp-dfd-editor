@@ -139,8 +139,8 @@ export function AppShell() {
         </Drawer>
       )}
       <StatusBar onOpenSettings={() => setSettingsOpen(true)} />
-      {agentExchange?.mode === 'export' && <AgentExportDialog featureId={agentExchange.featureId} onClose={() => useStore.getState().openAgentExchange(null)} />}
-      {agentExchange?.mode === 'import' && <AgentImportDialog featureId={agentExchange.featureId} onClose={() => useStore.getState().openAgentExchange(null)} />}
+      {agentExchange?.mode === 'export' && <AgentExportDialog softwareId={agentExchange.softwareId} featureId={agentExchange.featureId} onClose={() => useStore.getState().openAgentExchange(null)} />}
+      {agentExchange?.mode === 'import' && <AgentImportDialog softwareId={agentExchange.softwareId} onClose={() => useStore.getState().openAgentExchange(null)} />}
       {copyDfd && <CopyDfdDialog sourceFeatureId={copyDfd.sourceFeatureId} onClose={() => useStore.getState().openCopyDfd(null)} />}
       {replaceText && (
         <ReplaceTextDialog

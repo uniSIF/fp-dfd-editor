@@ -173,10 +173,16 @@ export interface DocumentSlice {
     replace: { find: string; replace: string } & ReplaceOptions;
   }) => { ok: true; created: EntityRef[]; nodeIds: Id[]; edgeIds: Id[] } | { ok: false; reason: string };
   /**
-   * AI エージェントの出力（交換形式）から計算した差分を反映する（FR-IO-02）。1 履歴。
-   * layout なら反映後に自動整列する。
+   * AI エージェントの出力（交換形式）から計算した差分を反映する（FR-IO-02、FR-IO-04）。1 履歴。
+   * 新しい分類・機能を作り、各機能の DFD に要素とデータフローを反映する。layout なら変更した機能の DFD を自動整列する。
+   * 戻り値の featureIds は出力に含まれた機能（新しく作ったものを含む）。
    */
-  applyImportPlan: (featureId: Id, plan: ImportPlan, options: { layout: boolean }) => { ok: true; created: number } | { ok: false; reason: string };
+  applyImportPlan: (softwareId: Id, plan: ImportPlan, options: { layout: boolean }) => { ok: true; created: number; featureIds: Id[] } | { ok: false; reason: string };
+  /**
+   * データファンクション・外部エンティティを、ID はそのままで複数の機能の DFD に参照として置く（FR-FN-19）。1 履歴。
+   * 置き済みの要素は飛ばす。TF・非計上プロセスは機能に属するため対象外。戻り値は機能ごとに置いた件数。
+   */
+  placeReferences: (targetFeatureIds: Id[], refs: EntityRef[]) => { placed: Record<Id, number>; skipped: number };
   /** 文言置換の結果をまとめて反映する（FR-FN-17）。1 履歴 */
   applyTextReplacements: (changes: TextChange[]) => void;
   updateEdgeLabel: (featureId: Id, edgeId: Id, label: string) => void;
@@ -209,7 +215,7 @@ export interface UiSlice {
   /** DFD でダブルクリックされ、プロパティパネルの名称（データフローはラベル）へのフォーカスを待っている */
   nameFocusRequested: boolean;
   /** AI エージェント（Copilot）との連携ダイアログ（FR-IO） */
-  agentExchange: { mode: 'export' | 'import'; featureId: Id } | null;
+  agentExchange: { mode: 'export' | 'import'; softwareId: Id; featureId: Id | null } | null;
 
   selectSoftware: (id: Id | null) => void;
   selectFeature: (id: Id | null) => void;
@@ -227,7 +233,7 @@ export interface UiSlice {
   /** ノード・データフローを選び、プロパティパネルの名称欄へフォーカスする（DFD のダブルクリック） */
   requestNameFocus: (nodeIds: Id[], edgeId: Id | null) => void;
   clearNameFocusRequest: () => void;
-  openAgentExchange: (r: { mode: 'export' | 'import'; featureId: Id } | null) => void;
+  openAgentExchange: (r: { mode: 'export' | 'import'; softwareId: Id; featureId: Id | null } | null) => void;
 }
 
 export type AppState = DocumentSlice & UiSlice;

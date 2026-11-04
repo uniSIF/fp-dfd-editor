@@ -763,46 +763,135 @@ test('Copilot 用に書き出し、エージェントの返答を取り込める
   await page.getByRole('button', { name: 'Copilot 連携' }).click();
   await page.getByRole('menuitem', { name: 'Copilot 用に書き出す…' }).click();
   let dialog = page.getByRole('dialog');
+  // 既定は選択中の機能だけ
+  await expect(dialog.getByRole('checkbox', { name: '顧客登録', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: '商品登録', exact: true })).not.toBeChecked();
   await dialog.getByLabel('エージェントへの依頼').fill('CSV で顧客を一括登録する処理を追加してください');
-  await shot(page, '24-agent-export');
   await dialog.getByRole('button', { name: '依頼文と JSON をコピー' }).click();
   await expect(page.getByText('依頼文と JSON をコピーしました')).toBeVisible();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain('依頼: CSV で顧客を一括登録する処理を追加してください');
   const json = JSON.parse(copied.slice(copied.indexOf('```json') + 7, copied.lastIndexOf('```')));
-  expect(json.format).toBe('fp-dfd-exchange');
-  expect(json.feature.key).toBe('fReg');
+  expect(json).toMatchObject({ format: 'fp-dfd-exchange', version: 2 });
+  expect(json.features.map((f: { key: string }) => f.key)).toEqual(['fReg']);
   await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 役割');
   await dialog.getByRole('button', { name: '閉じる' }).click();
 
   // エージェントの返答（説明文 + コードブロック）を模して、TF を 1 つ追加しデータフローでつなぐ
-  json.dfd.transactionFunctions.push({ key: 'NEW-1', name: '顧客一括登録', kind: 'EI', complexity: 'high', description: 'CSV で複数件を登録（DET 20・FTR 1）' });
-  json.dfd.dataFlows.push({ from: 'EE-001', to: 'NEW-1', label: '顧客 CSV' }, { from: 'NEW-1', to: 'DF-001', label: '顧客データ' });
-  const reply = `一括登録の処理を追加しました。\n\n\`\`\`json\n${JSON.stringify({ format: json.format, version: 1, feature: json.feature, dfd: json.dfd }, null, 2)}\n\`\`\`\n\n- 仮定: CSV の項目は 20 程度`;
+  const reg = json.features[0];
+  reg.dfd.transactionFunctions.push({ key: 'NEW-1', name: '顧客一括登録', kind: 'EI', complexity: 'high', description: 'CSV で複数件を登録（DET 20・FTR 1）' });
+  reg.dfd.dataFlows.push({ from: 'EE-001', to: 'NEW-1', label: '顧客 CSV' }, { from: 'NEW-1', to: 'DF-001', label: '顧客データ' });
+  const reply = (body: unknown) => `作成しました。\n\n\`\`\`json\n${JSON.stringify(body, null, 2)}\n\`\`\`\n\n- 仮定: CSV の項目は 20 程度`;
 
   await page.getByRole('button', { name: 'Copilot 連携' }).click();
   await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
   dialog = page.getByRole('dialog');
-  await dialog.getByLabel('エージェントの返答').fill(reply);
+  await dialog.getByLabel('エージェントの返答').fill(reply({ format: json.format, version: 2, features: [reg] }));
   const changes = dialog.getByRole('list', { name: '取り込む変更' });
-  await expect(changes.getByRole('listitem')).toHaveCount(3);
+  await expect(changes).toContainText('既存の機能を変更');
   await expect(changes).toContainText('顧客一括登録');
   await expect(changes).toContainText('EE-001 → NEW-1「顧客 CSV」');
-  await shot(page, '25-agent-import');
   await dialog.getByRole('button', { name: '取り込む' }).click();
   await expect(page.getByText(/Copilot の出力を取り込みました/)).toBeVisible();
   await expect(page.locator(NODE).filter({ hasText: '顧客一括登録' })).toHaveCount(1);
-  // EI 高 6 FP が加わる
   await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
 
   // エラーのある返答は取り込めない
   await page.getByRole('button', { name: 'Copilot 連携' }).click();
   await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
   dialog = page.getByRole('dialog');
-  await dialog.getByLabel('エージェントの返答').fill(JSON.stringify({ dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }], dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'low' }], dataFlows: [{ from: 'EE-001', to: 'DF-001' }] } }));
+  await dialog.getByLabel('エージェントの返答').fill(JSON.stringify({ features: [{ key: 'fReg', dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }], dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'low' }], dataFlows: [{ from: 'EE-001', to: 'DF-001' }] } }] }));
   await expect(dialog.getByRole('alert')).toContainText('外部エンティティとデータストアは直接接続できません');
   await expect(dialog.getByRole('button', { name: '取り込む' })).toBeDisabled();
+});
+
+test('複数の機能を参考に書き出し、新しい分類と複数の新しい機能の DFD を取り込める（FR-IO-04）', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openSample(page);
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot 用に書き出す…' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'すべて選択' }).click();
+  await dialog.getByRole('checkbox', { name: '顧客検索', exact: true }).uncheck();
+  await expect(dialog).toContainText('書き出す機能（2 / 3）');
+  await dialog.getByLabel('エージェントへの依頼').fill('顧客登録・商品登録を参考に、取引先登録と取引先照会を作ってください');
+  await shot(page, '24-agent-export');
+  await dialog.getByRole('button', { name: 'JSON だけコピー' }).click();
+  const json = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+  expect(json.features.map((f: { name: string }) => f.name)).toEqual(['顧客登録', '商品登録']);
+  expect(json.catalog.features).toHaveLength(3);
+  await dialog.getByRole('button', { name: '閉じる' }).click();
+
+  // エージェントが新しい分類に 2 つの機能を作り、新しい ILF を共有した返答
+  const body = {
+    format: 'fp-dfd-exchange', version: 2,
+    features: [
+      {
+        key: 'NEW-F1', name: '取引先登録', category1: '取引先管理', category2: '取引先情報', description: '取引先の新規登録',
+        dfd: {
+          externalEntities: [{ key: 'EE-001', name: '利用者' }],
+          dataFunctions: [{ key: 'NEW-1', name: '取引先マスタ', kind: 'ILF', complexity: 'low', owner: 'NEW-F1' }],
+          transactionFunctions: [{ key: 'NEW-2', name: '取引先登録入力', kind: 'EI', complexity: 'medium' }],
+          dataFlows: [{ from: 'EE-001', to: 'NEW-2', label: '登録情報' }, { from: 'NEW-2', to: 'NEW-1', label: '取引先データ' }],
+        },
+      },
+      {
+        key: 'NEW-F2', name: '取引先照会', category1: '取引先管理', category2: '取引先情報',
+        dfd: {
+          externalEntities: [{ key: 'EE-001', name: '利用者' }],
+          dataFunctions: [{ key: 'NEW-1', name: '取引先マスタ', kind: 'ILF', complexity: 'low' }],
+          transactionFunctions: [{ key: 'NEW-3', name: '取引先照会', kind: 'EQ', complexity: 'low' }],
+          dataFlows: [{ from: 'EE-001', to: 'NEW-3', label: '照会条件' }, { from: 'NEW-1', to: 'NEW-3', label: '取引先情報' }, { from: 'NEW-3', to: 'EE-001', label: '照会結果' }],
+        },
+      },
+    ],
+  };
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('エージェントの返答').fill('```json\n' + JSON.stringify(body) + '\n```');
+  const changes = dialog.getByRole('list', { name: '取り込む変更' });
+  await expect(changes).toContainText('取引先管理 / 取引先情報');
+  await expect(changes.getByText('新しい機能')).toHaveCount(2);
+  await shot(page, '25-agent-import');
+  await dialog.getByRole('button', { name: '取り込む' }).click();
+  await expect(page.getByText('Copilot の出力を取り込みました（機能 2 件・うち新しい機能 2 件・新しい要素 3 件）')).toBeVisible();
+  // ツリーに分類と機能が増え、最初の新しい機能が開く
+  await expect(page.getByTestId('tree-feature-取引先登録')).toBeVisible();
+  await expect(page.getByTestId('tree-feature-取引先照会')).toBeVisible();
+  await expect(page.locator(NODE).filter({ hasText: '取引先登録入力' })).toHaveCount(1);
+  await expect(page.locator(NODE).filter({ hasText: '取引先マスタ' })).toHaveCount(1);
+  // 取引先照会では取引先マスタは参照（所有は取引先登録）
+  await page.getByTestId('tree-feature-取引先照会').click();
+  await expect(page.locator(NODE).filter({ hasText: '取引先マスタ' })).toContainText('所有: 取引先登録');
+  // 1 回の Undo で機能ごと戻る
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('tree-feature-取引先登録')).toHaveCount(0);
+});
+
+test('ファンクション表で選んだ要素を、ID はそのままで他の DFD に参照として配置できる（FR-FN-19）', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  for (const t of ['利用者', '顧客マスタ', '顧客登録入力']) {
+    await page.getByRole('row').filter({ hasText: t }).getByRole('checkbox').first().check();
+  }
+  await page.getByRole('button', { name: '他の DFD に参照配置…' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('list', { name: '配置する要素' }).getByRole('listitem')).toHaveCount(2);
+  await expect(dialog).toContainText('トランザクション・非計上プロセス（顧客登録入力）は機能ごとの要素のため参照できません');
+  await dialog.getByRole('checkbox', { name: '顧客検索', exact: true }).check();
+  await dialog.getByRole('checkbox', { name: '商品登録', exact: true }).check();
+  await shot(page, '26-place-references');
+  await dialog.getByRole('button', { name: '4 件を参照として配置' }).click();
+  await expect(page.getByText('2 機能の DFD に、計 4 件を参照として配置しました')).toBeVisible();
+  // 顧客検索の DFD に、同じ番号のまま置かれる
+  await page.getByTestId('tree-feature-顧客検索').click();
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'EE-001' })).toContainText('利用者');
+  await expect(page.getByRole('row').filter({ hasText: 'DF-001' })).toContainText('顧客マスタ');
+  // 顧客マスタは顧客登録の所有なので、この機能には FP を計上しない
+  await expect(page.getByRole('row').filter({ hasText: 'DF-001' }).locator('[data-field="fp"]')).toHaveText('—');
 });
 
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {

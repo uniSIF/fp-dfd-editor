@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { AGENT_INSTRUCTIONS, buildAgentRequest } from './agentPrompt';
 import { createAppStore, undo } from '../store';
+import { AGENT_INSTRUCTIONS, buildAgentRequest } from './agentPrompt';
 import { buildExchange, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
 import { sampleDocument } from './sampleDocument';
 
@@ -12,113 +12,166 @@ const parse = (text: string): ImportData => {
 };
 
 describe('AI エージェントとの交換形式（FR-IO）', () => {
-  it('書き出した JSON をそのまま取り込むと変更なし', () => {
+  it('複数の機能を書き出し、そのまま取り込むと変更なし', () => {
     const doc = sampleDocument();
-    const ex = buildExchange(doc, 'fReg');
-    expect(ex.format).toBe('fp-dfd-exchange');
-    expect(ex.dfd.transactionFunctions.map((t) => t.key)).toEqual(['TF-001', 'TF-002', 'TF-003']);
-    expect(ex.dfd.dataFlows).toContainEqual({ from: 'EE-001', to: 'TF-001', label: '登録情報' });
-    // 他機能所有の DF も DFD に置いていれば含め、catalog で所有機能が分かる
-    expect(ex.dfd.dataFunctions.map((d) => d.key)).toEqual(['DF-001', 'DF-002']);
-    expect(ex.catalog.dataFunctions.find((d) => d.key === 'DF-002')?.owner).toBe('商品管理 / 商品情報 / 商品登録');
-    const plan = planImport(doc, 'fReg', parse(JSON.stringify(ex)), { removeMissing: true });
+    const ex = buildExchange(doc, ['fItem', 'fReg']);
+    expect(ex).toMatchObject({ format: 'fp-dfd-exchange', version: 2 });
+    // ツリーの順に並ぶ
+    expect(ex.features.map((f) => f.key)).toEqual(['fReg', 'fItem']);
+    const reg = ex.features[0];
+    expect(reg).toMatchObject({ name: '顧客登録', category1: '顧客管理', category2: '顧客情報' });
+    expect(reg.dfd.transactionFunctions.map((t) => t.key)).toEqual(['TF-001', 'TF-002', 'TF-003']);
+    expect(reg.dfd.dataFlows).toContainEqual({ from: 'EE-001', to: 'TF-001', label: '登録情報' });
+    // 他機能所有の DF には owner（所有機能の key）が付く
+    expect(reg.dfd.dataFunctions.find((d) => d.key === 'DF-002')?.owner).toBe('fItem');
+    expect(reg.dfd.dataFunctions.find((d) => d.key === 'DF-001')?.owner).toBeUndefined();
+    expect(ex.catalog.categories).toEqual([{ category1: '顧客管理', category2: '顧客情報' }, { category1: '商品管理', category2: '商品情報' }]);
+    expect(ex.catalog.features.map((f) => f.exported)).toEqual([true, false, true]);
+    // DFD に置いていない TF は placed: false で書き出し、そのまま取り込んでも置かない
+    const item = ex.features[1];
+    expect(item.dfd.transactionFunctions).toEqual([expect.objectContaining({ key: 'TF-006', placed: false })]);
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
     expect(plan.errors).toEqual([]);
     expect(planHasChanges(plan)).toBe(false);
+    // データフローでつなげば置く
+    item.dfd.dataFlows.push({ from: 'TF-006', to: 'DF-002', label: '商品データ' });
+    const placed = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(placed.features[1].places.map((p) => p.key)).toEqual(['TF-006']);
+    expect(placed.features[1].edgeAdds).toHaveLength(1);
   });
 
-  it('コードブロック付きの返答を読み、日本語の複雑度や小文字の種別も受け付ける', () => {
-    const reply = `DFD を作成しました。\n\n\`\`\`json\n${JSON.stringify({
-      format: 'fp-dfd-exchange', version: 1, feature: { key: 'fSearch' },
-      dfd: {
-        externalEntities: [{ key: 'EE-001', name: '利用者' }],
-        dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ilf', complexity: '中' }],
-        transactionFunctions: [{ key: 'NEW-1', name: '顧客一覧照会', kind: 'eq', complexity: 'average', description: '条件で一覧を表示' }],
-        dataFlows: [{ from: 'EE-001', to: 'NEW-1', label: '検索条件' }, { from: 'DF-001', to: 'NEW-1', label: '顧客情報' }, { from: 'NEW-1', to: 'EE-001', label: '一覧' }],
-      },
-    })}\n\`\`\`\n以上です。`;
-    const r = parseExchange(reply);
-    if (!r.ok) throw new Error(r.message);
-    expect(r.featureKey).toBe('fSearch');
+  it('参考にした機能をもとに、新しい分類・複数の新しい機能と共有の新しい DF を作れる', () => {
+    const reply = `「顧客登録」「顧客検索」を参考に作りました。\n\n\`\`\`json\n${JSON.stringify({
+      format: 'fp-dfd-exchange', version: 2,
+      features: [
+        {
+          key: 'NEW-F1', name: '取引先登録', category1: '顧客管理', category2: '取引先情報', description: '取引先の新規登録', devType: '新規',
+          dfd: {
+            externalEntities: [{ key: 'EE-001', name: '利用者' }],
+            dataFunctions: [{ key: 'NEW-1', name: '取引先マスタ', kind: 'ilf', complexity: '中', owner: 'NEW-F1' }],
+            transactionFunctions: [{ key: 'NEW-2', name: '取引先登録入力', kind: 'ei', complexity: 'average', description: 'DET 12・FTR 1' }],
+            dataFlows: [{ from: 'EE-001', to: 'NEW-2', label: '登録情報' }, { from: 'NEW-2', to: 'NEW-1', label: '取引先データ' }],
+          },
+        },
+        {
+          key: 'NEW-F2', path: '顧客管理 / 取引先情報 / 取引先検索',
+          dfd: {
+            externalEntities: [{ key: 'EE-001', name: '利用者' }],
+            dataFunctions: [{ key: 'NEW-1', name: '取引先マスタ', kind: 'ILF', complexity: 'medium' }],
+            transactionFunctions: [{ key: 'NEW-3', name: '取引先検索', kind: 'EQ', complexity: 'low' }],
+            dataFlows: [{ from: 'EE-001', to: 'NEW-3', label: '検索条件' }, { from: 'NEW-1', to: 'NEW-3', label: '取引先情報' }, { from: 'NEW-3', to: 'EE-001', label: '検索結果' }],
+          },
+        },
+      ],
+    })}\n\`\`\``;
     const doc = sampleDocument();
-    const plan = planImport(doc, 'fSearch', r.data, { removeMissing: false });
+    const plan = planImport(doc, 'sw1', parse(reply), { removeMissing: false });
     expect(plan.errors).toEqual([]);
-    expect(plan.creates).toEqual([{ refType: 'transactionFunction', key: 'NEW-1', name: '顧客一覧照会', kind: 'EQ', complexity: 'medium', description: '条件で一覧を表示' }]);
-    // 既存の外部エンティティと他機能所有の DF は参照として置く
-    expect(plan.places.map((p) => p.key).sort()).toEqual(['DF-001', 'EE-001']);
-    expect(plan.edgeAdds).toHaveLength(3);
+    expect(plan.newCategories).toEqual([{ category1: '顧客管理', category2: '取引先情報', newCategory1: false }]);
+    expect(plan.features.map((f) => [f.key, f.featureId, f.name, f.category2])).toEqual([['NEW-F1', null, '取引先登録', '取引先情報'], ['NEW-F2', null, '取引先検索', '取引先情報']]);
+    // 共有の新しい DF は 1 つだけ作る
+    expect(plan.creates.map((c) => c.key)).toEqual(['NEW-1', 'NEW-2', 'NEW-3']);
+    expect(plan.features[0].places.map((p) => p.key)).toEqual(['EE-001']);
 
-    // 反映すると新しい番号で作られ、つながる。1 回の Undo で戻る
     const store = createAppStore(doc);
     store.temporal.getState().clear();
-    const res = store.getState().applyImportPlan('fSearch', plan, { layout: true });
-    expect(res).toEqual({ ok: true, created: 1 });
+    const r = store.getState().applyImportPlan('sw1', plan, { layout: true });
+    if (!r.ok) throw new Error(r.reason);
     const after = store.getState().doc;
-    const tf = Object.values(after.transactionFunctions).find((t) => t.name === '顧客一覧照会')!;
-    expect(tf).toMatchObject({ displayNo: 'TF-007', featureId: 'fSearch', kind: 'EQ' });
-    expect(after.features.fSearch.dfd.nodes).toHaveLength(3);
-    expect(after.features.fSearch.dfd.edges).toHaveLength(3);
-    expect(after.dataFunctions.df1.ownerFeatureId).toBe('fReg');
+    const [f1, f2] = r.featureIds.map((id) => after.features[id]);
+    expect(f1).toMatchObject({ name: '取引先登録', devType: 'new', description: '取引先の新規登録' });
+    expect(after.category2s[f1.category2Id].name).toBe('取引先情報');
+    expect(f1.category2Id).toBe(f2.category2Id);
+    expect(after.category1s[after.category2s[f1.category2Id].category1Id].name).toBe('顧客管理');
+    const dfs = Object.values(after.dataFunctions).filter((d) => d.name === '取引先マスタ');
+    expect(dfs).toHaveLength(1);
+    expect(dfs[0]).toMatchObject({ ownerFeatureId: f1.id, kind: 'ILF', complexity: 'medium', displayNo: 'DF-003' });
+    // 2 つ目の機能では参照として置かれる
+    expect(f2.dfd.nodes.some((n) => n.refId === dfs[0].id)).toBe(true);
+    expect(f1.dfd.edges).toHaveLength(2);
+    expect(f2.dfd.edges).toHaveLength(3);
+    expect(Object.values(after.transactionFunctions).find((t) => t.name === '取引先検索')?.featureId).toBe(f2.id);
+    // 1 回の Undo で、分類・機能ごと戻る
     undo(store);
-    expect(store.getState().doc.features.fSearch.dfd.nodes).toHaveLength(0);
+    expect(store.getState().doc.features[f1.id]).toBeUndefined();
+    expect(Object.values(store.getState().doc.category2s).map((c) => c.name)).not.toContain('取引先情報');
   });
 
-  it('変更・ラベル変更・出力にない要素の削除を差分にする', () => {
+  it('既存の機能の変更・ラベル変更・出力にない要素の削除を差分にする', () => {
     const doc = sampleDocument();
-    const ex = buildExchange(doc, 'fReg');
-    const tf1 = ex.dfd.transactionFunctions.find((t) => t.key === 'TF-001')!;
+    const ex = buildExchange(doc, ['fReg']);
+    const f = ex.features[0];
+    const tf1 = f.dfd.transactionFunctions.find((t) => t.key === 'TF-001')!;
     tf1.complexity = 'high';
     tf1.name = '顧客新規登録';
-    ex.dfd.transactionFunctions = ex.dfd.transactionFunctions.filter((t) => t.key !== 'TF-003'); // 顧客検索を外す
-    ex.dfd.dataFlows = ex.dfd.dataFlows.filter((f) => f.from !== 'TF-003' && f.to !== 'TF-003');
-    ex.dfd.dataFlows.find((f) => f.label === '登録情報')!.label = '顧客登録情報';
+    f.dfd.transactionFunctions = f.dfd.transactionFunctions.filter((t) => t.key !== 'TF-003'); // 顧客検索を外す
+    f.dfd.dataFlows = f.dfd.dataFlows.filter((x) => x.from !== 'TF-003' && x.to !== 'TF-003');
+    f.dfd.dataFlows.find((x) => x.label === '登録情報')!.label = '顧客登録情報';
     // 他機能所有の DF の名称変更は取り込まない
-    ex.dfd.dataFunctions.find((d) => d.key === 'DF-002')!.name = '商品台帳';
+    f.dfd.dataFunctions.find((d) => d.key === 'DF-002')!.name = '商品台帳';
 
-    const keep = planImport(doc, 'fReg', parse(JSON.stringify(ex)), { removeMissing: false });
-    expect(keep.removals).toEqual([]);
-    expect(keep.edgeRemovals).toEqual([]);
-    const plan = planImport(doc, 'fReg', parse(JSON.stringify(ex)), { removeMissing: true });
+    const keep = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(keep.features[0].removals).toEqual([]);
+    expect(keep.features[0].edgeRemovals).toEqual([]);
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
     expect(plan.errors).toEqual([]);
-    expect(plan.updates).toHaveLength(1);
-    expect(plan.updates[0]).toMatchObject({ key: 'TF-001', patch: { name: '顧客新規登録', complexity: 'high' } });
+    expect(plan.updates).toEqual([expect.objectContaining({ key: 'TF-001', patch: { name: '顧客新規登録', complexity: 'high' } })]);
     expect(plan.warnings.some((w) => w.includes('DF-002'))).toBe(true);
-    expect(plan.edgeLabelUpdates).toEqual([expect.objectContaining({ from: 'EE-001', to: 'TF-001', before: '登録情報', label: '顧客登録情報' })]);
-    expect(plan.removals).toEqual([expect.objectContaining({ key: 'TF-003', mode: 'delete' })]);
-    expect(plan.edgeRemovals.map((e) => e.label).sort()).toEqual(['商品情報', '検索条件', '顧客情報']);
+    const fp = plan.features[0];
+    expect(fp.edgeLabelUpdates).toEqual([expect.objectContaining({ from: 'EE-001', to: 'TF-001', before: '登録情報', label: '顧客登録情報' })]);
+    expect(fp.removals).toEqual([expect.objectContaining({ key: 'TF-003', mode: 'delete' })]);
+    expect(fp.edgeRemovals.map((e) => e.label).sort()).toEqual(['商品情報', '検索条件', '顧客情報']);
 
     const store = createAppStore(doc);
-    expect(store.getState().applyImportPlan('fReg', plan, { layout: false }).ok).toBe(true);
+    expect(store.getState().applyImportPlan('sw1', plan, { layout: false }).ok).toBe(true);
     const after = store.getState().doc;
     expect(after.transactionFunctions.tf3).toBeUndefined();
     expect(after.transactionFunctions.tf1).toMatchObject({ name: '顧客新規登録', complexity: 'high' });
     expect(after.dataFunctions.df2.name).toBe('商品マスタ');
     expect(after.features.fReg.dfd.edges.find((e) => e.label === '顧客登録情報')).toBeDefined();
+    // 出力に含まれない機能は変わらない
+    expect(after.features.fItem).toEqual(doc.features.fItem);
   });
 
-  it('接続ルール違反・未知の key・重複・種別違いはエラーにする', () => {
+  it('接続ルール違反・未知の key・重複・機能をまたぐ TF の key・分類のない新しい機能はエラーにする', () => {
     const doc = sampleDocument();
     const data = parse(JSON.stringify({
-      dfd: {
-        externalEntities: [{ key: 'EE-001', name: '利用者' }, { key: 'X', name: '外部システム' }],
-        dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'low' }],
-        transactionFunctions: [{ key: 'EE-001', name: '誤り', kind: 'EI', complexity: 'low' }, { key: 'TF-004', name: '顧客照会', kind: 'EQ', complexity: 'low' }],
-        dataFlows: [{ from: 'EE-001', to: 'DF-001' }, { from: 'X', to: 'EE-001' }, { from: 'EE-001', to: 'NOPE' }],
-      },
+      features: [
+        {
+          key: 'fReg',
+          dfd: {
+            externalEntities: [{ key: 'EE-001', name: '利用者' }, { key: 'X', name: '外部システム' }],
+            dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'low' }],
+            transactionFunctions: [{ key: 'EE-001', name: '誤り', kind: 'EI', complexity: 'low' }, { key: 'TF-004', name: '顧客照会', kind: 'EQ', complexity: 'low' }, { key: 'NEW-T', name: '共有', kind: 'EI', complexity: 'low' }],
+            dataFlows: [{ from: 'EE-001', to: 'DF-001' }, { from: 'X', to: 'EE-001' }, { from: 'EE-001', to: 'NOPE' }],
+          },
+        },
+        { key: 'NEW-F1', name: '新機能', dfd: { transactionFunctions: [{ key: 'NEW-T', name: '共有', kind: 'EI', complexity: 'low' }] } },
+      ],
     }));
-    const plan = planImport(doc, 'fReg', data, { removeMissing: false });
-    expect(plan.errors.join('\n')).toMatch(/「EE-001」が重複/);
-    expect(plan.errors.join('\n')).toMatch(/TF-004.*別の機能/);
-    expect(plan.errors.join('\n')).toMatch(/外部エンティティとデータストアは直接接続できません/);
-    expect(plan.errors.join('\n')).toMatch(/外部エンティティ同士/);
-    expect(plan.errors.join('\n')).toMatch(/NOPE/);
+    const plan = planImport(doc, 'sw1', data, { removeMissing: false });
+    expect(plan.errors.join('\n')).toMatch(/新しい機能「新機能」の category1/);
+
+    const data2 = { features: [data.features[0], { ...data.features[1], category1: '顧客管理', category2: '顧客情報' }] };
+    const plan2 = planImport(doc, 'sw1', data2, { removeMissing: false });
+    const errors = plan2.errors.join('\n');
+    expect(errors).toMatch(/key「EE-001」が重複/);
+    expect(errors).toMatch(/TF-004.*別の機能/);
+    expect(errors).toMatch(/外部エンティティとデータストアは直接接続できません/);
+    expect(errors).toMatch(/外部エンティティ同士/);
+    expect(errors).toMatch(/NOPE/);
+    expect(errors).toMatch(/NEW-T.*ほかの機能でも使われています/);
     const store = createAppStore(doc);
-    expect(store.getState().applyImportPlan('fReg', plan, { layout: false }).ok).toBe(false);
+    expect(store.getState().applyImportPlan('sw1', plan2, { layout: false }).ok).toBe(false);
   });
 
-  it('JSON がない・壊れている・形式違いは理由を返す', () => {
+  it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
+    const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
+    expect(v1.features).toHaveLength(1);
+    expect(v1.features[0].key).toBe('fReg');
     expect(parseExchange('こんにちは')).toMatchObject({ ok: false });
-    expect(parseExchange('{ "dfd": ')).toMatchObject({ ok: false });
-    const r = parseExchange(JSON.stringify({ dfd: { transactionFunctions: [{ key: 'A', name: 'x', kind: 'XX', complexity: 'low' }] } }));
+    expect(parseExchange('{ "features": ')).toMatchObject({ ok: false });
+    const r = parseExchange(JSON.stringify({ features: [{ key: 'fReg', dfd: { transactionFunctions: [{ key: 'A', name: 'x', kind: 'XX', complexity: 'low' }] } }] }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toMatch(/EI・EO・EQ/);
   });

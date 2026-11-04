@@ -24,6 +24,7 @@ import { AddFunctionDialog, type AddKind, type AddRequest } from '../dfd/AddFunc
 import { ReferenceDialog } from '../dfd/ReferenceDialog';
 import { ConnectDialog } from './ConnectDialog';
 import { CopyFunctionsDialog } from './CopyFunctionsDialog';
+import { PlaceReferencesDialog } from './PlaceReferencesDialog';
 import { DfdPreview, usePreviewPrefs } from './DfdPreview';
 import type { EntityRef } from '../../store';
 
@@ -144,6 +145,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
   const model: GridRowSelectionModel = checked.featureId === featureId ? checked.model : { type: 'include', ids: new Set() };
   const checkedRows = rows.filter((r) => (model.type === 'include' ? model.ids.has(r.rowId) : !model.ids.has(r.rowId)));
   const [copying, setCopying] = useState(false);
+  const [referencing, setReferencing] = useState(false);
   const selectedRow = rows.find((r) => r.nodeIds.some((id) => selectedNodeIds.includes(id)))?.rowId;
 
   const editable = (row: FunctionRow, field: string) => {
@@ -267,10 +269,11 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           <MenuItem dense disabled={!checkedRows.length} onClick={() => { setMoreAnchor(null); setCopying(true); }}>
             {checkedRows.length ? `選択した ${checkedRows.length} 件をコピー…` : '選択したファンクションをコピー（行のチェックで選択）'}
           </MenuItem>
+          <MenuItem dense disabled={!checkedRows.length} onClick={() => { setMoreAnchor(null); setReferencing(true); }}>
+            {checkedRows.length ? `選択した ${checkedRows.length} 件を他の DFD に参照配置…` : '選択した要素を他の DFD に参照配置（行のチェックで選択）'}
+          </MenuItem>
         </Menu>
-        {checkedRows.length > 0 && (
-          <Button variant="contained" sx={{ flex: 'none' }} onClick={() => setCopying(true)}>選択した {checkedRows.length} 件をコピー…</Button>
-        )}
+
         <Box sx={{ flex: 1 }} />
         <Button
           color="inherit"
@@ -292,6 +295,18 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
         )}
       </Box>
       {preview.open && <DfdPreview featureId={featureId} height={preview.height} onResize={(h) => setPreview({ height: h })} />}
+      {checkedRows.length > 0 && (
+        // チェックした行への操作（一括コピー FR-FN-18、参照配置 FR-FN-19）
+        <Box role="toolbar" aria-label="選択した行の操作" sx={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 2, px: 3, py: '6px', background: tokens.primarySoft, borderBottom: `1px solid ${tokens.border}` }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mr: 1 }}>{checkedRows.length} 件を選択中</Typography>
+          <Button variant="contained" onClick={() => setCopying(true)}>選択した {checkedRows.length} 件をコピー…</Button>
+          <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong, background: '#fff' }} onClick={() => setReferencing(true)} title="ID はそのままで、他の機能の DFD に参照として置きます">
+            他の DFD に参照配置…
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" onClick={() => setChecked({ featureId, model: { type: 'include', ids: new Set() } })}>選択を解除</Button>
+        </Box>
+      )}
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <DataGrid<FunctionRow>
           rows={rows}
@@ -343,6 +358,14 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           rows={checkedRows}
           onClose={() => setCopying(false)}
           onCopied={() => setChecked({ featureId, model: { type: 'include', ids: new Set() } })}
+        />
+      )}
+      {referencing && checkedRows.length > 0 && (
+        <PlaceReferencesDialog
+          featureId={featureId}
+          rows={checkedRows}
+          onClose={() => setReferencing(false)}
+          onPlaced={() => setChecked({ featureId, model: { type: 'include', ids: new Set() } })}
         />
       )}
       {connectFrom && <ConnectDialog featureId={featureId} from={connectFrom} onClose={() => setConnectFrom(null)} />}

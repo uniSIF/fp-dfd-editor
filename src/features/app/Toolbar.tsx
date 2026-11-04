@@ -119,7 +119,7 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
       <Button variant="outlined" color="inherit" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportSvg(featureId)} disabled={!featureId} sx={{ borderColor: tokens.borderStrong, ml: 1 }}>
         SVG出力
       </Button>
-      <AgentMenu featureId={featureId} />
+      <AgentMenu softwareId={softwareId} featureId={featureId} />
       <Sep />
       <ToolButton title="設定" onClick={onOpenSettings} disabled={!softwareId}><SettingsOutlinedIcon fontSize="small" /></ToolButton>
       <Box sx={{ flex: 1 }} />
@@ -131,16 +131,16 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
 }
 
 /** AI エージェント（Copilot）との連携（FR-IO）。選択中の機能の DFD を書き出す・取り込む */
-function AgentMenu({ featureId }: { featureId: string | null }) {
+function AgentMenu({ softwareId, featureId }: { softwareId: string | null; featureId: string | null }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const open = (mode: 'export' | 'import') => {
     setAnchor(null);
-    if (featureId) useStore.getState().openAgentExchange({ mode, featureId });
+    if (softwareId) useStore.getState().openAgentExchange({ mode, softwareId, featureId });
   };
   return (
     <>
       <Button
-        variant="outlined" color="inherit" startIcon={<AutoAwesomeOutlinedIcon />} disabled={!featureId}
+        variant="outlined" color="inherit" startIcon={<AutoAwesomeOutlinedIcon />} disabled={!softwareId}
         onClick={(e) => setAnchor(e.currentTarget)} sx={{ borderColor: tokens.borderStrong, ml: 1 }}
         aria-haspopup="menu"
       >

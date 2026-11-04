@@ -422,4 +422,28 @@ describe('store', () => {
     expect(store.getState().copyFunctions({ sourceFeatureId: 'fReg', targetFeatureId: 'fReg', refs: [], includeEdges: true, replace: noReplace }).ok).toBe(false);
     expect(store.getState().copyFunctions({ sourceFeatureId: 'fReg', targetFeatureId: 'nope', refs: [{ refType: 'transactionFunction', refId: 'tf1' }], includeEdges: true, replace: noReplace }).ok).toBe(false);
   });
+  it('placeReferences: DF・外部エンティティを ID はそのままで複数の DFD に参照配置し、TF と配置済みは飛ばす（FR-FN-19）', () => {
+    const store = setup();
+    const refs = [
+      { refType: 'externalEntity' as const, refId: 'ee1' },
+      { refType: 'dataFunction' as const, refId: 'df2' },
+      { refType: 'transactionFunction' as const, refId: 'tf1' },
+    ];
+    const r = store.getState().placeReferences(['fSearch', 'fItem'], refs);
+    // fItem には df2 が配置済み
+    expect(r).toEqual({ placed: { fSearch: 2, fItem: 1 }, skipped: 1 });
+    const doc = store.getState().doc;
+    expect(doc.features.fSearch.dfd.nodes.map((n) => n.refId).sort()).toEqual(['df2', 'ee1']);
+    expect(doc.features.fItem.dfd.nodes.map((n) => n.refId).sort()).toEqual(['df2', 'ee1']);
+    // 実体は増えず、所有機能も変わらない
+    expect(Object.keys(doc.externalEntities)).toEqual(['ee1']);
+    expect(doc.dataFunctions.df2.ownerFeatureId).toBe('fItem');
+    expect(doc.features.fSearch.dfd.nodes.some((n) => n.refType === 'transactionFunction')).toBe(false);
+    // 1 回の Undo で戻る。すべて配置済みなら履歴を積まない
+    undo(store);
+    expect(store.getState().doc.features.fSearch.dfd.nodes).toHaveLength(0);
+    const rev = store.getState().revision;
+    expect(store.getState().placeReferences(['fItem'], [{ refType: 'dataFunction', refId: 'df2' }])).toEqual({ placed: { fItem: 0 }, skipped: 1 });
+    expect(store.getState().revision).toBe(rev);
+  });
 });
