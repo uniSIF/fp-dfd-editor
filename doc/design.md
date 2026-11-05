@@ -885,6 +885,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-24 | `domain/dfdGeometry.ts`（`nodeLayout` / `nodeSize(refType, name)`）、`DfdNodes.tsx`、`svgExport.ts`、`autoLayout.ts`（`nameOf`） |
 | FR-FN-18 | 4.2（`copyFunctions`）、`features/functions/CopyFunctionsDialog.tsx`、`FunctionTable.tsx`（`checkboxSelection`） |
 | FR-FN-19 | 4.2（`placeReferences`）、`features/functions/PlaceReferencesDialog.tsx`、`FunctionTable.tsx`（選択した行の操作バー） |
+| FR-ID-07 | `features/app/commands.ts`（`transferDataFunctionOwner`。ストアは `updateDataFunction`）、`PropertyPanel.tsx`（`PlacedFeatures`）、`FunctionTable.tsx`（参照行の操作） |
 | FR-IO-01 | `domain/exchange.ts`（`buildExchange`）、`features/agent/AgentExportDialog.tsx`、`infra/clipboard.ts` |
 | FR-IO-02 | `domain/exchange.ts`（`parseExchange` / `planImport`）、4.2（`applyImportPlan`）、`features/agent/AgentImportDialog.tsx` |
 | FR-IO-03 | `domain/agentPrompt.ts`（`AGENT_INSTRUCTIONS`）、`doc/copilot-agent.md`（同じ文面であることを単体テストで確認） |
@@ -976,6 +977,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | 名称に合わせたノードの大きさ（FR-DF-24） | 6.2 は固定寸法（プロセス 88px の円、データストア 180×44、外部エンティティ 140×60） | `nodeLayout(refType, name)` が文字幅の概算（全角 1・半角英数 0.6・半角カナ 0.5）から、名称を 2 行に分けた 1 行の幅を求め、既定の大きさで 1 行に入らないときだけ横に伸ばす。データストアは 2 行が入るよう高さを 60px にした。大きさは名称から毎回計算し、保存データには持たない。配置計算（空き位置・境界・自動整列・SVG）はすべて名称付きで `nodeSize` を呼ぶ | 長い名称を省略せずに読めるようにするため。高さを固定して横に伸ばすと、行の高さがそろい自動整列の段が崩れにくい |
 | AI エージェント連携（FR-IO-01〜03） | なし（要件追加） | 交換形式は保存ファイルとは別の、機能 1 つ分の「完成形」。内部 ID ではなく表示番号を key にする（エージェントが扱いやすく、取り違えにくい）。非計上プロセスは表示番号がないため `NCP-<ID>`。取り込みは `parseExchange`（zod で緩く検証し、複雑度の日本語や小文字の種別も受け付ける）→ `planImport`（純粋関数で差分を計算）→ `applyImportPlan`（1 回の `mutate`）の 3 段。外部エンティティを複数置いている DFD では、入力元は左端・出力先は右端のノードにつなぐ（`connectEntities` と同じ） | エージェントに差分を書かせるより完成形を返させるほうが誤りが少なく、差分の確認をアプリ側で行えるため |
 | 複数機能の連携（FR-IO-04） | なし（要件追加） | 交換形式を版 2 にし、`features` の配列にした（版 1 は読み込み時に 1 機能の版 2 に変換）。差分は、ソフトウェア共通の変更（新しい分類・新しい要素・既存要素の変更）と、機能ごとの変更（配置・データフロー・削除）に分ける。外部エンティティ・DF の新しい key はソフトウェア全体で 1 つの実体にまとめ、TF・非計上プロセスの key は機能をまたぐとエラーにする。未配置の要素は `placed: false` で書き出し、そのまま返れば置かない（往復で変更が出ないように） | 似た機能を参考に新しい機能をまとめて作るには、参考の DFD と作る機能を 1 回のやり取りで扱える必要があるため |
+| 外部エンティティの分割の受け渡し（FR-IO-01・FR-DF-18） | なし（要件追加） | 交換形式では外部エンティティを 1 件にまとめるため、2 か所以上に置いたものに `split: true` を付ける。取り込みで `split` かつ 1 か所以下なら右側にもう 1 つ置き、既存のノードに入ってくるデータフローをそちらへ付け替える（`splitExternalEntityNode` と同じ）。新しいデータフローは送り出し側を左端、受け取り側を右端のノードにつなぐ | 流用元の DFD の見た目（入力元は左、出力先は右）を、エージェント経由で作った DFD でも保つため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。

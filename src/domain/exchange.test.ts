@@ -165,6 +165,54 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(store.getState().applyImportPlan('sw1', plan2, { layout: false }).ok).toBe(false);
   });
 
+  it('入力側と出力側に分けた外部エンティティは split で受け渡し、取り込みでも 2 か所に置く（FR-DF-18）', () => {
+    const doc = sampleDocument();
+    const store = createAppStore(doc);
+    expect(store.getState().splitExternalEntityNode('fReg', 'n1').ok).toBe(true);
+    const split = store.getState().doc;
+    const ex = buildExchange(split, ['fReg']);
+    expect(ex.features[0].dfd.externalEntities).toEqual([expect.objectContaining({ key: 'EE-001', split: true })]);
+    // そのまま取り込むと変更なし
+    expect(planHasChanges(planImport(split, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true }))).toBe(false);
+
+    // 流用して作った新しい機能でも 2 か所に置き、from は左・to は右のノードにつながる
+    const body = {
+      features: [{
+        key: 'NEW-F1', name: '取引先登録', category1: '顧客管理', category2: '顧客情報',
+        dfd: {
+          externalEntities: [{ key: 'EE-001', name: '利用者', split: true }],
+          transactionFunctions: [{ key: 'NEW-1', name: '取引先登録入力', kind: 'EI', complexity: 'low' }],
+          dataFlows: [{ from: 'EE-001', to: 'NEW-1', label: '登録情報' }, { from: 'NEW-1', to: 'EE-001', label: '登録結果' }],
+        },
+      }],
+    };
+    const plan = planImport(split, 'sw1', parse(JSON.stringify(body)), { removeMissing: false });
+    expect(plan.features[0].splitKeys).toEqual(['EE-001']);
+    const r = store.getState().applyImportPlan('sw1', plan, { layout: true });
+    if (!r.ok) throw new Error(r.reason);
+    const f = store.getState().doc.features[r.featureIds[0]];
+    const ees = f.dfd.nodes.filter((n) => n.refId === 'ee1');
+    expect(ees).toHaveLength(2);
+    const tf = f.dfd.nodes.find((n) => n.refType === 'transactionFunction')!;
+    const [left, right] = [...ees].sort((a, b) => a.x - b.x);
+    expect(left.x).toBeLessThan(tf.x);
+    expect(right.x).toBeGreaterThan(tf.x);
+    expect(f.dfd.edges.find((e) => e.label === '登録情報')?.sourceNodeId).toBe(left.id);
+    expect(f.dfd.edges.find((e) => e.label === '登録結果')?.targetNodeId).toBe(right.id);
+
+    // 既存の機能で 1 か所の外部エンティティに split を付けると、入ってくるデータフローを右側へ付け替える
+    const ex2 = buildExchange(doc, ['fReg']);
+    ex2.features[0].dfd.externalEntities[0].split = true;
+    const store2 = createAppStore(doc);
+    const plan2 = planImport(doc, 'sw1', parse(JSON.stringify(ex2)), { removeMissing: false });
+    expect(plan2.features[0].splitKeys).toEqual(['EE-001']);
+    expect(store2.getState().applyImportPlan('sw1', plan2, { layout: false }).ok).toBe(true);
+    const g = store2.getState().doc.features.fReg.dfd;
+    const added = g.nodes.find((n) => n.refId === 'ee1' && n.id !== 'n1')!;
+    expect(g.edges.filter((e) => e.targetNodeId === added.id).map((e) => e.label)).toEqual(['完了通知']);
+    expect(g.edges.filter((e) => e.sourceNodeId === 'n1').map((e) => e.label).sort()).toEqual(['検索条件', '登録情報']);
+  });
+
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
     const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
     expect(v1.features).toHaveLength(1);

@@ -759,6 +759,18 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
               g().nodes.push({ id: newId(), refType: r.refType, refId: r.refId, x: pos.x, y: pos.y });
             }
           }
+          // split の外部エンティティは、右側にもう 1 つ置く（入力元は左、出力先は右のノードにつなぐ。FR-DF-18）
+          for (const k of fp.splitKeys) {
+            const r = resolve(k);
+            const first = r && g().nodes.find((n) => n.refType === r.refType && n.refId === r.refId);
+            if (!r || !first) continue;
+            const right = Math.max(...g().nodes.map((n) => n.x + sizeOf(d, n).width));
+            const pos = freePosition(d, g().nodes, r.refType, r.refId, { x: right + 80, y: first.y });
+            const id = newId();
+            g().nodes.push({ id, refType: r.refType, refId: r.refId, x: pos.x, y: pos.y });
+            // 既存のノードに入ってくるデータフローは右側のノードへ付け替える（splitExternalEntityNode と同じ）
+            for (const e of g().edges) if (e.targetNodeId === first.id) e.targetNodeId = id;
+          }
           // 外部エンティティを複数置いている場合は、入力元は左端・出力先は右端のノードを使う
           const nodeFor = (k: string, role: 'source' | 'target') => {
             const r = resolve(k);

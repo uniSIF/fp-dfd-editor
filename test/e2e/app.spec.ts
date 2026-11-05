@@ -256,7 +256,9 @@ test('ファンクション表で名称だけ変えて複製できる（FR-FN-14
   await shot(page, '11-duplicate-dfd');
   // 参照行は複製できない
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
-  await expect(page.getByRole('button', { name: '商品マスタ を複製' })).toBeDisabled();
+  // 参照中のデータファンクションは複製できず、代わりに所有を移す操作が出る（FR-ID-07）
+  await expect(page.getByRole('button', { name: '商品マスタ を複製' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '商品マスタ の所有をこの機能に移す' })).toBeVisible();
 });
 
 test('機能のプロパティから選択中のノードのプロパティへ戻れる', async ({ page }) => {
@@ -892,6 +894,36 @@ test('ファンクション表で選んだ要素を、ID はそのままで他�
   await expect(page.getByRole('row').filter({ hasText: 'DF-001' })).toContainText('顧客マスタ');
   // 顧客マスタは顧客登録の所有なので、この機能には FP を計上しない
   await expect(page.getByRole('row').filter({ hasText: 'DF-001' }).locator('[data-field="fp"]')).toHaveText('—');
+});
+
+test('参照しているデータファンクションの所有を、その機能に移せる（FR-ID-07）', async ({ page }) => {
+  await openSample(page);
+  const ownerOf = () => page.evaluate(() => (window as unknown as { __store: { getState: () => { doc: { dataFunctions: Record<string, { ownerFeatureId: string }> } } } }).__store.getState().doc.dataFunctions.df2.ownerFeatureId);
+  // 顧客登録の DFD に参照で置いている「商品マスタ」（所有: 商品登録）
+  await page.locator('.react-flow__node[data-id="n6"]').click();
+  const placed = page.getByRole('list', { name: '置いている機能' });
+  await expect(placed.getByRole('listitem')).toHaveCount(2);
+  await expect(placed.getByRole('listitem').filter({ hasText: '商品登録' })).toContainText('所有');
+  await shot(page, '27-transfer-owner');
+  await placed.getByRole('button', { name: '所有を「顧客登録」に移す' }).click();
+  await expect(page.getByText('「商品マスタ」の所有を「顧客登録」に移しました（内部論理ファイル 7 FP の計上先が「商品登録」から「顧客登録」に変わります）')).toBeVisible();
+  expect(await ownerOf()).toBe('fReg');
+  // 顧客登録に ILF 低 7 FP が加わる
+  await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
+  await expect(placed.getByRole('listitem').filter({ hasText: '顧客登録' })).toContainText('所有');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await ownerOf()).toBe('fItem');
+  await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
+
+  // ファンクション表の参照行からも移せる
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  const row = page.getByRole('row').filter({ hasText: 'DF-002' });
+  await expect(row.locator('[data-field="fp"]')).toHaveText('—');
+  await row.getByRole('button', { name: '商品マスタ の所有をこの機能に移す' }).click();
+  expect(await ownerOf()).toBe('fReg');
+  await expect(row.locator('[data-field="fp"]')).toHaveText('7');
+  await expect(row.getByRole('button', { name: '商品マスタ を複製' })).toBeEnabled();
 });
 
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {

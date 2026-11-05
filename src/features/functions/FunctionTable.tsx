@@ -4,6 +4,7 @@ import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LoginIcon from '@mui/icons-material/Login';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -17,6 +18,7 @@ import { COMPLEXITIES, COMPLEXITY_LABELS } from '../../domain/fpTables';
 import type { Complexity, DataFunctionKind, Id, NodeRefType, TransactionKind } from '../../domain/types';
 import { useStore } from '../../store';
 import { selectFeatureFunctions, selectFeatureResult, type FunctionRow } from '../../store/selectors';
+import { transferDataFunctionOwner } from '../app/commands';
 import { tokens } from '../app/theme';
 import { KindBadge } from '../common/KindBadge';
 import { WarningIcon } from '../common/WarningIcon';
@@ -231,15 +233,26 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
         >
           <AddLinkIcon sx={{ fontSize: 17 }} />
         </IconButton>
-        <IconButton
-          size="small"
-          title={row.isReference ? '参照中の要素は複製できません（所有機能で複製します）' : '複製'}
-          aria-label={`${row.name} を複製`}
-          disabled={row.isReference}
-          onClick={(e) => { e.stopPropagation(); setAdd(duplicateRequest(featureId, row)); }}
-        >
-          <ContentCopyIcon sx={{ fontSize: 15 }} />
-        </IconButton>
+        {row.isReference ? (
+          // 参照中のデータファンクションは複製できない。代わりに所有をこの機能に移せる（FR-ID-07）
+          <IconButton
+            size="small"
+            title={`所有をこの機能に移す（${row.ownerName ?? '未設定'} → この機能）`}
+            aria-label={`${row.name} の所有をこの機能に移す`}
+            onClick={(e) => { e.stopPropagation(); transferDataFunctionOwner(row.refId, featureId); }}
+          >
+            <LoginIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        ) : (
+          <IconButton
+            size="small"
+            title="複製"
+            aria-label={`${row.name} を複製`}
+            onClick={(e) => { e.stopPropagation(); setAdd(duplicateRequest(featureId, row)); }}
+          >
+            <ContentCopyIcon sx={{ fontSize: 15 }} />
+          </IconButton>
+        )}
         <IconButton
           size="small"
           title={row.isReference || row.refType === 'externalEntity' ? '配置を解除' : '削除'}

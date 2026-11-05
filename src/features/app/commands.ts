@@ -1,7 +1,8 @@
 import { buildCsv, buildLedgerCsv, safeFileName, timestampForFile } from '../../domain/csvExport';
 import { emptyDocument } from '../../domain/emptyDocument';
 import type { LoadError, Result } from '../../domain/migrations';
-import { featuresInOrder } from '../../domain/queries';
+import { FP_WEIGHTS, FUNCTION_KIND_LABELS } from '../../domain/fpTables';
+import { featuresInOrder, softwareIdOfFeature } from '../../domain/queries';
 import { sampleDocument } from '../../domain/sampleDocument';
 import { buildDfdSvg } from '../../domain/svgExport';
 import type { FpDocument, Id } from '../../domain/types';
@@ -194,4 +195,24 @@ export function pasteClipboard(): void {
   if (!s.clipboard || !s.selectedFeatureId) return;
   const r = s.pasteNodes(s.selectedFeatureId, s.clipboard);
   if (!r.ok) s.notify(r.reason, 'error');
+}
+
+/**
+ * データファンクションの所有（FP を計上する機能）を別の機能に移す（FR-ID-07）。
+ * 元の所有機能の DFD には参照として残る。Undo で戻せる。
+ */
+export function transferDataFunctionOwner(dataFunctionId: Id, featureId: Id): void {
+  const s = get();
+  const df = s.doc.dataFunctions[dataFunctionId];
+  const to = s.doc.features[featureId];
+  if (!df || !to) return;
+  if (df.ownerFeatureId === featureId) return;
+  if (softwareIdOfFeature(s.doc, featureId) !== df.softwareId) return s.notify('別のソフトウェアの機能には移せません', 'error');
+  const from = df.ownerFeatureId ? s.doc.features[df.ownerFeatureId]?.name : null;
+  s.updateDataFunction(dataFunctionId, { ownerFeatureId: featureId });
+  const fp = FP_WEIGHTS[df.kind][df.complexity];
+  s.notify(
+    `「${df.name}」の所有を「${to.name}」に移しました（${FUNCTION_KIND_LABELS[df.kind]} ${fp} FP の計上先が${from ? `「${from}」から` : ''}「${to.name}」に変わります）`,
+    'success',
+  );
 }

@@ -12,7 +12,7 @@ import { featurePathLabel, featuresInOrder, refName, softwareIdOfFeature } from 
 import type { Complexity, FpDocument, Id } from '../../domain/types';
 import { useStore } from '../../store';
 import { selectDfdNodes, selectFeatureResult, selectWarnings } from '../../store/selectors';
-import { requestDeleteSelection } from '../app/commands';
+import { requestDeleteSelection, transferDataFunctionOwner } from '../app/commands';
 import { tokens } from '../app/theme';
 import { CommitTextField } from '../common/CommitTextField';
 import { formatNumber } from '../common/format';
@@ -170,6 +170,32 @@ function useRequestedFocus(key: string, enabled = true) {
   return ref;
 }
 
+/**
+ * データファンクションを置いている機能の一覧（FR-ID-07）。所有機能以外には「所有を移す」を出す。
+ */
+function PlacedFeatures({ doc, dataFunctionId }: { doc: FpDocument; dataFunctionId: Id }) {
+  const df = doc.dataFunctions[dataFunctionId];
+  const placed = featuresInOrder(doc, df.softwareId).filter((f) => f.dfd.nodes.some((n) => n.refType === 'dataFunction' && n.refId === dataFunctionId));
+  return (
+    <Field label="置いている機能">
+      <Box component="ul" aria-label="置いている機能" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        {placed.map((f) => (
+          <Box component="li" key={f.id} sx={{ minHeight: 28, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={featurePathLabel(doc, f.id)}>{f.name}</span>
+            {f.id === df.ownerFeatureId ? (
+              <span style={{ flexShrink: 0, fontSize: 11, padding: '0 6px', borderRadius: 8, border: `1px solid ${tokens.border}`, color: tokens.textSecondary }}>所有</span>
+            ) : (
+              <Button size="small" sx={{ flexShrink: 0, minWidth: 0, py: 0 }} onClick={() => transferDataFunctionOwner(dataFunctionId, f.id)} aria-label={`所有を「${f.name}」に移す`}>
+                所有を移す
+              </Button>
+            )}
+          </Box>
+        ))}
+      </Box>
+    </Field>
+  );
+}
+
 function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId: Id; nodeId: Id }) {
   const view = selectDfdNodes(doc, featureId).find((v) => v.nodeId === nodeId);
   const [connecting, setConnecting] = useState(false);
@@ -237,16 +263,23 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
       </Section>
       <Section title={refType === 'dataFunction' ? '所有' : refType === 'externalEntity' ? '配置先' : '所属'}>
         {df ? (
-          <Field label="所有機能（FP を計上する機能）">
-            <Select
-              fullWidth value={df.ownerFeatureId ?? ''} displayEmpty
-              onChange={(e) => s.updateDataFunction(df.id, { ownerFeatureId: (e.target.value as string) || null })}
-              sx={{ height: 28 }} inputProps={{ 'aria-label': '所有機能' }}
-            >
-              <MenuItem value="" dense>未設定</MenuItem>
-              {featuresInOrder(doc, df.softwareId).map((f) => <MenuItem key={f.id} value={f.id} dense>{featurePathLabel(doc, f.id)}</MenuItem>)}
-            </Select>
-          </Field>
+          <>
+            <Field label="所有機能（FP を計上する機能）">
+              <Select
+                fullWidth value={df.ownerFeatureId ?? ''} displayEmpty
+                onChange={(e) => {
+                  const v = e.target.value as string;
+                  if (v) transferDataFunctionOwner(df.id, v);
+                  else s.updateDataFunction(df.id, { ownerFeatureId: null });
+                }}
+                sx={{ height: 28 }} inputProps={{ 'aria-label': '所有機能' }}
+              >
+                <MenuItem value="" dense>未設定</MenuItem>
+                {featuresInOrder(doc, df.softwareId).map((f) => <MenuItem key={f.id} value={f.id} dense>{featurePathLabel(doc, f.id)}</MenuItem>)}
+              </Select>
+            </Field>
+            <PlacedFeatures doc={doc} dataFunctionId={df.id} />
+          </>
         ) : (
           <Field label="機能"><ReadOnly>{featurePathLabel(doc, featureId)}</ReadOnly></Field>
         )}

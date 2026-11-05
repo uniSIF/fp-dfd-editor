@@ -45,6 +45,7 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 - 外部エンティティ同士、データファンクション同士、外部エンティティとデータファンクションは直接つながない。必ずトランザクションか非計上プロセスを介す。
 - 向きはデータが流れる向き。照会なら「外部エンティティ → EQ（条件）」「ILF → EQ（データ）」「EQ → 外部エンティティ（結果）」のように書く。
 - label には流れるデータの名称（例: 登録情報、検索条件、顧客一覧）を書く。
+- 外部エンティティに "split": true が付いていれば、その外部エンティティは入力元（左）と出力先（右）の 2 か所に分けて置かれている。from に書いたデータフローは左、to に書いたデータフローは右のノードにつながる。流用・参考にした機能で split の外部エンティティは、新しい機能でも同じ外部エンティティに split: true を付ける（付けないと 1 か所にまとめて置かれる）。
 
 # key のルール（とても重要）
 - 機能: 既存の機能の key は絶対に変えない。新しい機能には他と重ならない key（例: NEW-F1、NEW-F2）を付け、name・category1・category2 を必ず書く。分類は catalog.categories の名前をそのまま使うのが基本。新しい分類が必要なときだけ新しい名前を書く（自動で作られる）。
@@ -72,13 +73,14 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
       "category2": "取引先情報",
       "description": "取引先の新規登録",
       "dfd": {
-        "externalEntities": [{ "key": "EE-001", "name": "利用者", "description": "…" }],
+        "externalEntities": [{ "key": "EE-001", "name": "利用者", "split": true, "description": "…" }],
         "dataFunctions": [{ "key": "NEW-1", "name": "取引先マスタ", "kind": "ILF", "complexity": "low", "owner": "NEW-F1", "description": "…" }],
         "transactionFunctions": [{ "key": "NEW-2", "name": "取引先登録入力", "kind": "EI", "complexity": "medium", "description": "…" }],
         "nonCountedProcesses": [],
         "dataFlows": [
           { "from": "EE-001", "to": "NEW-2", "label": "登録情報" },
-          { "from": "NEW-2", "to": "NEW-1", "label": "取引先データ" }
+          { "from": "NEW-2", "to": "NEW-1", "label": "取引先データ" },
+          { "from": "NEW-2", "to": "EE-001", "label": "登録結果" }
         ]
       }
     }

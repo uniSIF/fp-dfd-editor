@@ -19,6 +19,8 @@ export interface ExchangeElement {
   description: string;
   /** DFD に置いていない要素（この機能に属するが未配置）だけ false を付ける */
   placed?: boolean;
+  /** 外部エンティティを入力側（左）と出力側（右）の 2 か所に分けて置く（FR-DF-18） */
+  split?: boolean;
 }
 export interface ExchangeDataFunction extends ExchangeElement {
   kind: DataFunctionKind;
@@ -66,6 +68,8 @@ const RULES = {
     'dataFlows の from / to は同じ機能の dfd 内の要素の key。外部エンティティ同士、データファンクション同士、外部エンティティとデータファンクションは直接つなげない（必ずプロセスを介する）。label には流れるデータの名称を書く',
   description: '各要素の description には、その要素を置いた理由や FP の判断根拠を簡潔に書く',
   placed: '"placed": false の要素は、機能に属するが DFD に置いていない要素。そのままにすれば置かれない。DFD に置くなら placed を消す',
+  split:
+    '外部エンティティの "split": true は、同じ外部エンティティを入力元（左）と出力先（右）の 2 か所に分けて置くこと。dataFlows の from に書くと左、to に書くと右のノードにつながる。流用元の外部エンティティが split なら、新しい機能でも split: true を付ける',
   output: '返答の JSON は 1 つのコードブロック（```json）にまとめる。説明文はコードブロックの外に書いてよい',
 } as const;
 
@@ -80,7 +84,11 @@ function featureDfd(doc: FpDocument, featureId: Id): ExchangeDfd {
   return {
     externalEntities: uniq(nodes.filter((n) => n.refType === 'externalEntity').map((n) => n.refId))
       .map((id) => doc.externalEntities[id]).filter(Boolean)
-      .map((e) => ({ key: e.displayNo, name: e.name, description: e.description })),
+      .map((e) => ({
+        key: e.displayNo, name: e.name, description: e.description,
+        // 入力側と出力側に分けて置いている（ノードが 2 つ以上）
+        ...(nodes.filter((n) => n.refType === 'externalEntity' && n.refId === e.id).length > 1 ? { split: true } : {}),
+      })),
     dataFunctions: Object.values(doc.dataFunctions)
       .filter((d) => d.softwareId === swId && (placed('dataFunction', d.id) || d.ownerFeatureId === featureId))
       .map((d) => ({
@@ -184,7 +192,7 @@ const devType = z.preprocess((v) => {
   return undefined;
 }, z.enum(['new', 'modification']).optional());
 const upper = (v: unknown) => String(v ?? '').trim().toUpperCase();
-const element = z.object({ key, name: z.string().trim().min(1, 'name がありません'), description: text, placed: z.boolean().optional() });
+const element = z.object({ key, name: z.string().trim().min(1, 'name がありません'), description: text, placed: z.boolean().optional(), split: z.boolean().optional() });
 const dfdSchema = z.object({
   externalEntities: z.array(element).default([]),
   dataFunctions: z.array(element.extend({
@@ -293,6 +301,8 @@ export interface FeaturePlan {
   elementKeys: string[];
   /** この機能で新しく作る要素の key（表示用） */
   createKeys: string[];
+  /** 入力側と出力側の 2 か所に置く外部エンティティの key（今は 1 か所以下のもの） */
+  splitKeys: string[];
   edgeAdds: { from: string; to: string; label: string }[];
   edgeLabelUpdates: { edgeId: Id; from: string; to: string; before: string; label: string }[];
   edgeRemovals: { edgeId: Id; from: string; to: string; label: string }[];
@@ -431,6 +441,10 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         const keepUnplaced = item.placed === false && !!ex && !isPlaced(ex.refType, ex.refId);
         if (!keepUnplaced) fp.elementKeys.push(k);
         else unplaced.set(k, ex);
+        // 外部エンティティを 2 か所に分ける指定。すでに 2 か所以上に置いていれば何もしない
+        if (refType === 'externalEntity' && item.split && !(ex && nodes.filter((n) => n.refType === ex.refType && n.refId === ex.refId).length > 1)) {
+          fp.splitKeys.push(k);
+        }
         if (ex && ex.refType !== refType) {
           plan.errors.push(`${where}: 「${k}」は${typeLabel(ex.refType)}の key です。${label}の一覧には書けません。`);
           continue;
@@ -560,7 +574,7 @@ function emptyFeaturePlan(
 ): FeaturePlan {
   return {
     key, featureId, name, category1, category2, devType, description, featurePatch, featureChanges,
-    places: [], elementKeys: [], createKeys: [], edgeAdds: [], edgeLabelUpdates: [], edgeRemovals: [], removals: [],
+    places: [], elementKeys: [], createKeys: [], splitKeys: [], edgeAdds: [], edgeLabelUpdates: [], edgeRemovals: [], removals: [],
   };
 }
 
@@ -587,7 +601,7 @@ function currentOf(doc: FpDocument, refType: NodeRefType, refId: Id): { name: st
 
 /** 機能ごとの変更の有無 */
 export function featurePlanHasChanges(f: FeaturePlan): boolean {
-  return !!(!f.featureId || f.featureChanges.length || f.createKeys.length || f.places.length || f.edgeAdds.length || f.edgeLabelUpdates.length || f.edgeRemovals.length || f.removals.length);
+  return !!(!f.featureId || f.featureChanges.length || f.createKeys.length || f.splitKeys.length || f.places.length || f.edgeAdds.length || f.edgeLabelUpdates.length || f.edgeRemovals.length || f.removals.length);
 }
 
 /** プランに変更があるか */
