@@ -213,6 +213,58 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(g.edges.filter((e) => e.sourceNodeId === 'n1').map((e) => e.label).sort()).toEqual(['検索条件', '登録情報']);
   });
 
+  it('開発区分と外注業者を受け渡し、登録にない業者名は警告して反映しない', () => {
+    const doc = sampleDocument();
+    const ex = buildExchange(doc, ['fReg', 'fSearch']);
+    expect(ex.features.map((f) => [f.devType, f.vendor])).toEqual([['新規', 'A社'], ['改修', 'B社']]);
+    expect(ex.catalog.vendors).toEqual([{ name: 'A社' }, { name: 'B社' }]);
+    const same = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(same.errors).toEqual([]); // DFD が空の機能（顧客検索）もそのまま返せる
+    expect(planHasChanges(same)).toBe(false);
+
+    // 既存の機能: 開発区分と外注業者を変える。vendor の項目がなければ外注業者は変えない
+    ex.features[0].devType = '改修';
+    ex.features[0].vendor = 'B社';
+    delete (ex.features[1] as { vendor?: string }).vendor;
+    const body = {
+      features: [
+        ...ex.features,
+        {
+          key: 'NEW-F1', name: '取引先登録', category1: '顧客管理', category2: '顧客情報', vendor: 'C社',
+          dfd: { transactionFunctions: [{ key: 'NEW-1', name: '取引先登録入力', kind: 'EI', complexity: 'low' }] },
+        },
+        {
+          key: 'NEW-F2', name: '取引先照会', category1: '顧客管理', category2: '顧客情報', devType: 'modification', vendor: ' a社 ',
+          dfd: { transactionFunctions: [{ key: 'NEW-2', name: '取引先照会', kind: 'EQ', complexity: 'low' }] },
+        },
+        {
+          key: 'NEW-F3', name: '取引先削除', category1: '顧客管理', category2: '顧客情報', devType: '保守',
+          dfd: { transactionFunctions: [{ key: 'NEW-3', name: '取引先削除', kind: 'EI', complexity: 'low' }] },
+        },
+      ],
+    };
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(body)), { removeMissing: false });
+    expect(plan.errors).toEqual([]);
+    expect(plan.features[0].featurePatch).toEqual({ devType: 'modification', vendorId: 'vB' });
+    expect(plan.features[0].featureChanges).toEqual(['開発区分 新規 → 改修', '外注業者 A社 → B社']);
+    expect(plan.features[1].featurePatch).toEqual({});
+    expect(plan.features.slice(2).map((f) => [f.devType, f.vendorId])).toEqual([['new', null], ['modification', 'vA'], ['new', null]]);
+    expect(plan.warnings.join('\n')).toMatch(/外注業者「C社」は登録されていない/);
+    expect(plan.warnings.join('\n')).toMatch(/開発区分「保守」は「新規」か「改修」ではない/);
+
+    const store = createAppStore(doc);
+    const r = store.getState().applyImportPlan('sw1', plan, { layout: false });
+    if (!r.ok) throw new Error(r.reason);
+    const after = store.getState().doc;
+    expect(after.features.fReg).toMatchObject({ devType: 'modification', vendorId: 'vB' });
+    expect(after.features.fSearch).toMatchObject({ devType: 'modification', vendorId: 'vB' });
+    expect(after.features[r.featureIds[3]]).toMatchObject({ name: '取引先照会', devType: 'modification', vendorId: 'vA' });
+
+    // 「未選択」で外注なしにできる
+    const clear = planImport(after, 'sw1', parse(JSON.stringify({ features: [{ key: 'fReg', vendor: '未選択', dfd: buildExchange(after, ['fReg']).features[0].dfd }] })), { removeMissing: false });
+    expect(clear.features[0].featurePatch).toEqual({ vendorId: null });
+  });
+
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
     const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
     expect(v1.features).toHaveLength(1);

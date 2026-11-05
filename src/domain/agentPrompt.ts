@@ -10,9 +10,9 @@ export const AGENT_INSTRUCTIONS = `# 役割
 # 受け取る JSON の読み方
 - rules: 作業ルールの要約。必ず従う。
 - software: 対象のソフトウェア。
-- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（新規 / 改修）、dfd を持つ。
+- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、dfd を持つ。
 - dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。
-- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。
+- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。
 
 # 作業の進め方
 1. 依頼を読み、「参考にする機能」と「作成・変更する機能」を区別する。参考にする機能は、依頼で変更を求められない限り返さない。
@@ -21,6 +21,11 @@ export const AGENT_INSTRUCTIONS = `# 役割
 4. 要素を洗い出し、種別と複雑度を判定する（下の基準）。
 5. データフローでつなぐ。プロセス（トランザクション・非計上プロセス）を介さない接続は作らない。
 6. 返答の形式に従って返す。
+
+# 開発区分と外注業者
+- devType は「新規」か「改修」だけを書く。vendor は catalog.vendors にある名前をそのまま書く。外注しない機能は空文字にする。一覧にない業者名は使わない（取り込まれない）。
+- 依頼で指示があればそれに従う（例:「B社に外注」「改修として」）。
+- 指示がなければ、新しい機能は流用元・参考にした機能と同じにし、既存の機能は変えずにそのまま返す。
 
 # 種別の判定基準
 - 外部エンティティ: システムの外にいて、データを渡す・受け取る人や外部システム（例: 利用者、管理者、決済サービス）。
@@ -72,6 +77,8 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
       "category1": "顧客管理",
       "category2": "取引先情報",
       "description": "取引先の新規登録",
+      "devType": "新規",
+      "vendor": "A社",
       "dfd": {
         "externalEntities": [{ "key": "EE-001", "name": "利用者", "split": true, "description": "…" }],
         "dataFunctions": [{ "key": "NEW-1", "name": "取引先マスタ", "kind": "ILF", "complexity": "low", "owner": "NEW-F1", "description": "…" }],

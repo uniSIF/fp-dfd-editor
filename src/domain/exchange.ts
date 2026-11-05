@@ -62,6 +62,8 @@ const RULES = {
     '既存の機能は key（feature の key）を変えない。新しい機能には他と重ならない key（例: NEW-F1）を付け、name・category1（大分類）・category2（中分類）を書く。分類は catalog.categories にあるものを使うのが基本で、ない名前を書くと新しく作られる',
   keys:
     '既存の要素は key を変えない。新しい要素には他と重ならない key（例: NEW-1）を付ける。catalog にある外部エンティティ・データファンクションを使う場合は、その key をそのまま書く（参照として配置される）。新しい外部エンティティ・データファンクションを複数の機能で使う場合は、同じ key を使う。トランザクションファンクションと非計上プロセスは機能ごとに別の key にする',
+  devTypeAndVendor:
+    '機能の devType は「新規」か「改修」。vendor は外注業者の名前（catalog.vendors のいずれか）で、外注しないなら空文字。依頼で指示がなければ、新しい機能は流用元・参考にした機能に合わせ、既存の機能は変えない。vendor を書かなければ変更しない',
   owner:
     'データファンクションの owner は FP を計上する機能（所有機能）の key。新しいデータファンクションで省略すると、最初に書いた機能が所有する。既存のデータファンクションの所有機能は変わらない',
   dataFlows:
@@ -131,16 +133,18 @@ export function buildExchange(doc: FpDocument, featureIds: Id[]) {
         category2: p.category2.name,
         description: f.description,
         devType: DEV_TYPE_LABELS[f.devType],
+        vendor: (f.vendorId && doc.vendors[f.vendorId]?.name) || '',
         dfd: featureDfd(doc, f.id),
       };
     }),
     catalog: {
-      note: '同じソフトウェアにある既存の分類・機能・外部エンティティ・データファンクション。DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない',
+      note: '同じソフトウェアにある既存の分類・機能・外注業者・外部エンティティ・データファンクション。DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない',
       categories: featuresInOrder(doc, swId).map((f) => getFeaturePath(doc, f.id)!).reduce<{ category1: string; category2: string }[]>((acc, p) => {
         if (!acc.some((c) => c.category1 === p.category1.name && c.category2 === p.category2.name)) acc.push({ category1: p.category1.name, category2: p.category2.name });
         return acc;
       }, []),
       features: featuresInOrder(doc, swId).map((f) => ({ key: f.id, path: featurePathLabel(doc, f.id), exported: featureIds.includes(f.id) })),
+      vendors: doc.softwares[swId].vendorIds.map((id) => doc.vendors[id]).filter(Boolean).map((v) => ({ name: v.name })),
       externalEntities: Object.values(doc.externalEntities)
         .filter((e) => e.softwareId === swId)
         .map((e) => ({ key: e.displayNo, name: e.name, description: e.description })),
@@ -185,12 +189,6 @@ const complexity = z.preprocess((v) => {
   if (['high', '高', 'h'].includes(s)) return 'high';
   return s;
 }, z.enum(['low', 'medium', 'high'], { message: 'complexity は low・medium・high のいずれかです' }));
-const devType = z.preprocess((v) => {
-  const s = String(v ?? '').trim().toLowerCase();
-  if (['new', '新規'].includes(s)) return 'new';
-  if (['modification', 'modify', 'mod', '改修'].includes(s)) return 'modification';
-  return undefined;
-}, z.enum(['new', 'modification']).optional());
 const upper = (v: unknown) => String(v ?? '').trim().toUpperCase();
 const element = z.object({ key, name: z.string().trim().min(1, 'name がありません'), description: text, placed: z.boolean().optional(), split: z.boolean().optional() });
 const dfdSchema = z.object({
@@ -212,7 +210,10 @@ const featureSchema = z.object({
   /** 「大分類 / 中分類 / 機能」の形でも受け付ける */
   path: text,
   description: text,
-  devType,
+  /** 新規 / 改修（new / modification も可）。値の確認は planImport で行い、読めなければ警告にする */
+  devType: text,
+  /** 外注業者の名前。項目がなければ変更しない。空文字・「未選択」は外注なし */
+  vendor: z.preprocess((v) => (v === undefined ? undefined : v === null ? '' : String(v)), z.string().optional()),
   dfd: dfdSchema,
 });
 const formatField = z.literal(EXCHANGE_FORMAT, { message: `format が "${EXCHANGE_FORMAT}" ではありません` }).optional();
@@ -226,7 +227,10 @@ export interface ImportFeature {
   category1: string;
   category2: string;
   description: string;
-  devType?: DevType;
+  /** 書かれた値のまま（空文字は指定なし） */
+  devType: string;
+  /** undefined は指定なし（変更しない）、空文字は外注なし */
+  vendor?: string;
   dfd: z.infer<typeof dfdSchema>;
 }
 export interface ImportData {
@@ -256,7 +260,7 @@ export function parseExchange(input: string): { ok: true; data: ImportData } | {
   if (isV1) {
     const r = v1Schema.safeParse(raw);
     if (!r.success) return fail(r.error);
-    return { ok: true, data: { features: [{ key: r.data.feature?.key || null, name: '', category1: '', category2: '', description: '', dfd: r.data.dfd }] } };
+    return { ok: true, data: { features: [{ key: r.data.feature?.key || null, name: '', category1: '', category2: '', description: '', devType: '', dfd: r.data.dfd }] } };
   }
   const r = v2Schema.safeParse(raw);
   if (!r.success) return fail(r.error);
@@ -272,7 +276,8 @@ export function parseExchange(input: string): { ok: true; data: ImportData } | {
           category1: f.category1.trim() || (parts.length >= 3 ? parts[0] : ''),
           category2: f.category2.trim() || (parts.length >= 3 ? parts[1] : ''),
           description: f.description,
-          devType: f.devType,
+          devType: f.devType.trim(),
+          vendor: f.vendor?.trim(),
           dfd: f.dfd,
         };
       }),
@@ -291,9 +296,11 @@ export interface FeaturePlan {
   category1: string;
   category2: string;
   devType: DevType;
+  /** 新しい機能の外注業者 */
+  vendorId: Id | null;
   description: string;
-  /** 既存の機能の名称・説明の変更 */
-  featurePatch: Partial<{ name: string; description: string }>;
+  /** 既存の機能の名称・説明・開発区分・外注業者の変更 */
+  featurePatch: Partial<{ name: string; description: string; devType: DevType; vendorId: Id | null }>;
   featureChanges: string[];
   /** この DFD に新しく置く既存の要素（catalog から参照など） */
   places: { refType: NodeRefType; refId: Id; key: string; name: string }[];
@@ -354,6 +361,34 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     return null;
   };
 
+  /** 開発区分。空なら null（指定なし）、読めなければ undefined */
+  const parseDevType = (v: string): DevType | null | undefined => {
+    const t = v.toLowerCase();
+    if (!t) return null;
+    if (['新規', 'new'].includes(t)) return 'new';
+    if (['改修', 'modification', 'modify', 'mod'].includes(t)) return 'modification';
+    return undefined;
+  };
+  const vendors = sw.vendorIds.map((id) => doc.vendors[id]).filter(Boolean);
+  /** 外注業者。指定なしは undefined のまま返す。名前が見つからなければ警告して undefined */
+  const resolveVendor = (v: string | undefined, where: string): Id | null | undefined => {
+    if (v === undefined) return undefined;
+    if (['', '未選択', 'なし', '外注なし', 'none'].includes(v.toLowerCase())) return null;
+    const hit = vendors.find((x) => x.name === v) ?? vendors.find((x) => x.name.replace(/\s/g, '').toLowerCase() === v.replace(/\s/g, '').toLowerCase());
+    if (hit) return hit.id;
+    plan.warnings.push(`${where}の外注業者「${v}」は登録されていないため、設定しません（登録済み: ${vendors.map((x) => x.name).join('、') || 'なし'}）。外注業者は設定画面で追加できます。`);
+    return undefined;
+  };
+  const devTypeOf = (v: string, where: string): DevType | null => {
+    const d = parseDevType(v);
+    if (d === undefined) {
+      plan.warnings.push(`${where}の開発区分「${v}」は「新規」か「改修」ではないため、設定しません。`);
+      return null;
+    }
+    return d;
+  };
+  const vendorName = (id: Id | null) => (id ? doc.vendors[id]?.name ?? '' : '未選択');
+
   // 1. 機能の対応づけ
   const featureKeys = new Set<string>();
   const outputFeatureKeys = new Set(data.features.map((f, i) => f.key ?? `#${i + 1}`));
@@ -376,10 +411,15 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       const featureChanges: string[] = [];
       if (f.name && f.name !== existing.name) { featurePatch.name = f.name; featureChanges.push(`機能名「${existing.name}」→「${f.name}」`); }
       if (f.description && f.description !== existing.description) { featurePatch.description = f.description; featureChanges.push('機能の説明'); }
+      const where = `機能「${existing.name}」`;
+      const dev = devTypeOf(f.devType, where);
+      if (dev && dev !== existing.devType) { featurePatch.devType = dev; featureChanges.push(`開発区分 ${DEV_TYPE_LABELS[existing.devType]} → ${DEV_TYPE_LABELS[dev]}`); }
+      const vendorId = resolveVendor(f.vendor, where);
+      if (vendorId !== undefined && vendorId !== existing.vendorId) { featurePatch.vendorId = vendorId; featureChanges.push(`外注業者 ${vendorName(existing.vendorId)} → ${vendorName(vendorId)}`); }
       if ((f.category1 && f.category1 !== p.category1.name) || (f.category2 && f.category2 !== p.category2.name)) {
         plan.warnings.push(`機能「${existing.name}」の分類の変更は取り込みません（分類の移動はツリーで行います）。`);
       }
-      plan.features.push(emptyFeaturePlan(k, k, existing.name, p.category1.name, p.category2.name, existing.devType, existing.description, featurePatch, featureChanges));
+      plan.features.push(emptyFeaturePlan(k, k, existing.name, p.category1.name, p.category2.name, existing.devType, existing.vendorId, existing.description, featurePatch, featureChanges));
       return;
     }
     // 新しい機能
@@ -399,7 +439,11 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     if (c2?.featureIds.some((id) => doc.features[id]?.name === f.name)) {
       plan.warnings.push(`「${f.category1} / ${f.category2}」には同じ名前の機能「${f.name}」がすでにあります（別の機能として追加します）。`);
     }
-    plan.features.push(emptyFeaturePlan(k, null, f.name, f.category1, f.category2, f.devType ?? 'new', f.description, {}, []));
+    const where = `新しい機能「${f.name}」`;
+    const dev = devTypeOf(f.devType, where) ?? 'new';
+    const vendorId = resolveVendor(f.vendor, where) ?? null;
+    const featureChanges = [`開発区分 ${DEV_TYPE_LABELS[dev]}`, `外注業者 ${vendorName(vendorId)}`];
+    plan.features.push(emptyFeaturePlan(k, null, f.name, f.category1, f.category2, dev, vendorId, f.description, {}, featureChanges));
   });
   if (plan.errors.length) return plan;
 
@@ -563,17 +607,18 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         fp.removals.push({ ...c, key: entityKey(doc, c.refType, c.refId), name: refName(doc, c.refType, c.refId), mode: owned ? 'delete' : 'unplace' });
       }
     }
-    if (!fp.elementKeys.length) plan.errors.push(`${where}: dfd に要素がありません。`);
+    // 既存の機能は DFD が空のままでもよい（空の機能を含めて書き出し、そのまま返す場合）
+    if (!fp.featureId && !fp.elementKeys.length) plan.errors.push(`${where}: dfd に要素がありません。`);
   });
   return plan;
 }
 
 function emptyFeaturePlan(
-  key: string, featureId: Id | null, name: string, category1: string, category2: string, devType: DevType, description: string,
+  key: string, featureId: Id | null, name: string, category1: string, category2: string, devType: DevType, vendorId: Id | null, description: string,
   featurePatch: FeaturePlan['featurePatch'], featureChanges: string[],
 ): FeaturePlan {
   return {
-    key, featureId, name, category1, category2, devType, description, featurePatch, featureChanges,
+    key, featureId, name, category1, category2, devType, vendorId, description, featurePatch, featureChanges,
     places: [], elementKeys: [], createKeys: [], splitKeys: [], edgeAdds: [], edgeLabelUpdates: [], edgeRemovals: [], removals: [],
   };
 }

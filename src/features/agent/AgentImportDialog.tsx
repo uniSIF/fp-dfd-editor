@@ -145,7 +145,7 @@ function FeatureRows({ plan, f }: { plan: ImportPlan; f: FeaturePlan }) {
           {f.featureId ? (changed ? '既存の機能を変更' : '変更なし') : '新しい機能'}
         </span>
       </Box>
-      {f.featureChanges.map((c) => <Row key={`fc:${c}`} tag="変更" color={tokens.warning} label="機能" text={c} />)}
+      {f.featureChanges.map((c) => <Row key={`fc:${c}`} tag={f.featureId ? '変更' : '設定'} color={f.featureId ? tokens.warning : tokens.primary} label="機能" text={c} />)}
       {creates.map((c) => <Row key={`c:${c.key}`} tag="追加" color={tokens.primary} label={`${TYPE_LABELS[c.refType]}${c.kind ? `（${c.kind}）` : ''}`} text={c.name} />)}
       {f.places.map((p) => <Row key={`p:${p.key}`} tag="配置" color={tokens.primary} label={`${TYPE_LABELS[p.refType]} ${p.key}`} text={`${p.name}（既存の要素を参照）`} />)}
       {f.splitKeys.map((k) => <Row key={`s:${k}`} tag="配置" color={tokens.primary} label={`外部エンティティ ${k}`} text="入力側（左）と出力側（右）の 2 か所に分けて置く" />)}

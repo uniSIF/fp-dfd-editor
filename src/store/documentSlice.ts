@@ -694,7 +694,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           const category2Id = category2Of(fp.category1, fp.category2);
           d.features[id] = {
             id, category2Id, name: fp.name, devType: fp.devType, characteristics: [...sw.settings.defaultCharacteristics],
-            vendorId: null, description: fp.description, dfd: { nodes: [], edges: [] },
+            vendorId: fp.vendorId, description: fp.description, dfd: { nodes: [], edges: [] },
           };
           d.category2s[category2Id].featureIds.push(id);
           featureOf.set(fp.key, id);
