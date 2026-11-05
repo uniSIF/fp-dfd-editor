@@ -926,6 +926,57 @@ test('参照しているデータファンクションの所有を、その機�
   await expect(row.getByRole('button', { name: '商品マスタ を複製' })).toBeEnabled();
 });
 
+test('Copilot の出力の JSON ファイルを、取り込みダイアログにドラッグ＆ドロップで読み込める', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  const dialog = page.getByRole('dialog');
+  const body = {
+    format: 'fp-dfd-exchange', version: 2,
+    features: [{
+      key: 'NEW-F1', name: '取引先登録', category1: '顧客管理', category2: '顧客情報',
+      dfd: {
+        externalEntities: [{ key: 'EE-001', name: '利用者' }],
+        transactionFunctions: [{ key: 'NEW-1', name: '取引先登録入力', kind: 'EI', complexity: 'low' }],
+        dataFlows: [{ from: 'EE-001', to: 'NEW-1', label: '登録情報' }],
+      },
+    }],
+  };
+  /** ファイルを持った DataTransfer で、要素に dragenter → dragover → drop を送る */
+  const dropFile = async (selector: string, name: string, type: string, content: string) => {
+    const dt = await page.evaluateHandle(({ name, type, content }) => {
+      const d = new DataTransfer();
+      d.items.add(new File([content], name, { type }));
+      return d;
+    }, { name, type, content });
+    const target = page.locator(selector).first();
+    await target.dispatchEvent('dragenter', { dataTransfer: dt });
+    await target.dispatchEvent('dragover', { dataTransfer: dt });
+    await expect(page.getByTestId('agent-import-dropzone')).toBeVisible();
+    await shot(page, '28-agent-import-drop');
+    await target.dispatchEvent('drop', { dataTransfer: dt });
+    await expect(page.getByTestId('agent-import-dropzone')).toHaveCount(0);
+  };
+
+  // JSON 以外は読み込まない
+  await dropFile('[role="dialog"]', 'diagram.png', 'image/png', 'PNG');
+  await expect(dialog.getByRole('alert')).toContainText('「diagram.png」は読み込めません');
+  await expect(dialog.getByLabel('エージェントの返答')).toHaveValue('');
+
+  // JSON ファイルを落とすと貼り付け欄に読み込まれ、差分が出る
+  await dropFile('[role="dialog"]', 'copilot-reply.json', 'application/json', JSON.stringify(body, null, 2));
+  await expect(dialog.getByText('ファイル「copilot-reply.json」を読み込みました。')).toBeVisible();
+  await expect(dialog.getByRole('list', { name: '取り込む変更' })).toContainText('取引先登録入力');
+  await dialog.getByRole('button', { name: '取り込む' }).click();
+  await expect(page.getByTestId('tree-feature-取引先登録')).toBeVisible();
+
+  // ダイアログの外（背景）に落としても読み込む
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  await dropFile('.MuiDialog-root .MuiBackdrop-root', 'reply.txt', 'text/plain', '説明\n```json\n' + JSON.stringify(body) + '\n```');
+  await expect(page.getByRole('dialog').getByText('ファイル「reply.txt」を読み込みました。')).toBeVisible();
+});
+
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
   await openSample(page);
   await page.locator('.react-flow__node[data-id="n1"]').click(); // 利用者

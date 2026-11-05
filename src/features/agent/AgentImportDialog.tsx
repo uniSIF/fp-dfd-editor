@@ -8,7 +8,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { featurePlanHasChanges, parseExchange, planHasChanges, planImport, type FeaturePlan, type ImportPlan } from '../../domain/exchange';
 import type { Id, NodeRefType } from '../../domain/types';
 import { useStore } from '../../store';
@@ -33,6 +33,11 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
   const [removeMissing, setRemoveMissing] = useState(false);
   const [layout, setLayout] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  // ドラッグ中の表示。子要素に入るたびに dragenter / dragleave が来るので回数で数える
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const parsed = useMemo(() => (text.trim() ? parseExchange(text) : null), [text]);
   const plan = useMemo<ImportPlan | null>(
     () => (parsed?.ok ? planImport(doc, softwareId, parsed.data, { removeMissing }) : null),
@@ -40,6 +45,52 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
   );
   const sw = doc.softwares[softwareId];
   if (!sw) return null;
+
+  /** ファイルの中身を貼り付け欄に読み込む（ファイル選択・ドラッグ＆ドロップ共通） */
+  const loadFile = (f: File) => {
+    setFileError(null);
+    const textLike = /\.(json|txt|md)$/i.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json';
+    if (!textLike) {
+      setFileError(`「${f.name}」は読み込めません。Copilot が出力した JSON（.json・.txt・.md）のファイルを選んでください。`);
+      return;
+    }
+    if (f.size > 5 * 1024 * 1024) {
+      setFileError(`「${f.name}」は大きすぎます（5 MB まで）。`);
+      return;
+    }
+    void f.text().then((t) => {
+      setText(t);
+      setFileName(f.name);
+    });
+  };
+  const hasFiles = (e: DragEvent) => [...e.dataTransfer.types].includes('Files');
+  /** ダイアログを開いている間は、画面のどこに落としても受け取る（ブラウザがファイルを開いてしまわないように） */
+  const dropHandlers = {
+    onDragEnter: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (!dragDepth.current) setDragging(false);
+    },
+    onDrop: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      const f = e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    },
+  };
   const canApply = !!plan && !plan.errors.length && planHasChanges(plan);
   const newFeatures = plan?.features.filter((f) => !f.featureId).length ?? 0;
 
@@ -60,31 +111,46 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth={false} slotProps={{ paper: { sx: { width: 720 } } }}>
+    <Dialog open onClose={onClose} maxWidth={false} slotProps={{ paper: { sx: { width: 720, position: 'relative' } } }} {...dropHandlers}>
+      {dragging && (
+        <Box
+          data-testid="agent-import-dropzone"
+          sx={{
+            position: 'absolute', inset: 8, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+            border: `2px dashed ${tokens.primary}`, borderRadius: '6px', background: 'rgba(230, 238, 250, 0.92)', color: tokens.primary, fontSize: 14, fontWeight: 600,
+          }}
+        >
+          ここにファイルをドロップして読み込む
+        </Box>
+      )}
       <DialogTitle>Copilot の出力を取り込む（{sw.name}）</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'flex-end', mb: '2px' }}>
             <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, flex: 1 }}>
-              エージェントの返答を貼り付けます（説明文が混ざっていても、JSON のコードブロックだけを読みます）
+              エージェントの返答を貼り付けるか、JSON ファイルをここにドラッグ＆ドロップします（説明文が混ざっていても、JSON のコードブロックだけを読みます）
             </Typography>
             <Button size="small" onClick={() => fileRef.current?.click()}>ファイルから読み込む…</Button>
             <input
               ref={fileRef} type="file" accept=".json,.txt,.md,application/json,text/plain" hidden data-testid="agent-import-file"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) void f.text().then(setText);
+                if (f) loadFile(f);
                 e.target.value = '';
               }}
             />
           </Box>
           <TextField
-            autoFocus fullWidth multiline minRows={4} maxRows={8} value={text} onChange={(e) => setText(e.target.value)}
+            autoFocus fullWidth multiline minRows={4} maxRows={8} value={text} onChange={(e) => { setText(e.target.value); setFileName(null); }}
             placeholder={'```json\n{ "format": "fp-dfd-exchange", "features": [ ... ] }\n```'}
             slotProps={{ htmlInput: { 'aria-label': 'エージェントの返答', style: { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 } } }}
           />
         </Box>
 
+        {fileName && !fileError && (
+          <Typography sx={{ fontSize: 12, color: tokens.textSecondary, mt: -2 }}>ファイル「{fileName}」を読み込みました。</Typography>
+        )}
+        {fileError && <Notice tone="error">{fileError}</Notice>}
         {parsed && !parsed.ok && <Notice tone="error">{parsed.message}</Notice>}
         {plan && plan.errors.length > 0 && (
           <Notice tone="error">
