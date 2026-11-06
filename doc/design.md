@@ -886,11 +886,13 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-FN-18 | 4.2（`copyFunctions`）、`features/functions/CopyFunctionsDialog.tsx`、`FunctionTable.tsx`（`checkboxSelection`） |
 | FR-FN-19 | 4.2（`placeReferences`）、`features/functions/PlaceReferencesDialog.tsx`、`FunctionTable.tsx`（選択した行の操作バー） |
 | FR-ID-07 | `features/app/commands.ts`（`transferDataFunctionOwner`。ストアは `updateDataFunction`）、`PropertyPanel.tsx`（`PlacedFeatures`）、`FunctionTable.tsx`（参照行の操作） |
+| FR-CT-06 | `domain/queries.ts`（`featureIdsUnder` / `dataFunctionsOwnedBy`）、4.2（`removeFeature` / `removeCategory` の `DataFunctionDisposition`）、`features/tree/DeleteFeaturesDialog.tsx` |
 | FR-IO-01 | `domain/exchange.ts`（`buildExchange`）、`features/agent/AgentExportDialog.tsx`、`infra/clipboard.ts` |
 | FR-IO-02 | `domain/exchange.ts`（`parseExchange` / `planImport`）、4.2（`applyImportPlan`）、`features/agent/AgentImportDialog.tsx` |
 | FR-IO-03 | `domain/agentPrompt.ts`（`AGENT_INSTRUCTIONS`）、`doc/copilot-agent.md`（同じ文面であることを単体テストで確認） |
 | FR-IO-04 | `domain/exchange.ts`（版 2: `features`、`planImport(doc, softwareId, …)` の `FeaturePlan`）、4.2（`applyImportPlan(softwareId, …)`）、`AgentExportDialog.tsx`（機能の選択）、`AgentImportDialog.tsx`（機能ごとの差分） |
 | FR-IO-05 | `domain/exchange.ts`（`features[].devType` / `vendor`、`catalog.vendors`、`planImport` の `featurePatch`）、4.2（`applyImportPlan` で新しい機能の `devType` / `vendorId` を設定） |
+| FR-IO-06 | `domain/exchange.ts`（`planImport` の `matchByName`・要素の `aliases` / `sharedAliases`） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
@@ -979,6 +981,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | AI エージェント連携（FR-IO-01〜03） | なし（要件追加） | 交換形式は保存ファイルとは別の、機能 1 つ分の「完成形」。内部 ID ではなく表示番号を key にする（エージェントが扱いやすく、取り違えにくい）。非計上プロセスは表示番号がないため `NCP-<ID>`。取り込みは `parseExchange`（zod で緩く検証し、複雑度の日本語や小文字の種別も受け付ける）→ `planImport`（純粋関数で差分を計算）→ `applyImportPlan`（1 回の `mutate`）の 3 段。外部エンティティを複数置いている DFD では、入力元は左端・出力先は右端のノードにつなぐ（`connectEntities` と同じ） | エージェントに差分を書かせるより完成形を返させるほうが誤りが少なく、差分の確認をアプリ側で行えるため |
 | 複数機能の連携（FR-IO-04） | なし（要件追加） | 交換形式を版 2 にし、`features` の配列にした（版 1 は読み込み時に 1 機能の版 2 に変換）。差分は、ソフトウェア共通の変更（新しい分類・新しい要素・既存要素の変更）と、機能ごとの変更（配置・データフロー・削除）に分ける。外部エンティティ・DF の新しい key はソフトウェア全体で 1 つの実体にまとめ、TF・非計上プロセスの key は機能をまたぐとエラーにする。未配置の要素は `placed: false` で書き出し、そのまま返れば置かない（往復で変更が出ないように） | 似た機能を参考に新しい機能をまとめて作るには、参考の DFD と作る機能を 1 回のやり取りで扱える必要があるため |
 | 外部エンティティの分割の受け渡し（FR-IO-01・FR-DF-18） | なし（要件追加） | 交換形式では外部エンティティを 1 件にまとめるため、2 か所以上に置いたものに `split: true` を付ける。取り込みで `split` かつ 1 か所以下なら右側にもう 1 つ置き、既存のノードに入ってくるデータフローをそちらへ付け替える（`splitExternalEntityNode` と同じ）。新しいデータフローは送り出し側を左端、受け取り側を右端のノードにつなぐ | 流用元の DFD の見た目（入力元は左、出力先は右）を、エージェント経由で作った DFD でも保つため |
+| 名前による対応づけ（FR-IO-06） | なし（要件追加） | 機能の key は内部 ID（21 文字のランダムな文字列）で、エージェントが写し間違えたり付け直したりしやすい。key で見つからない機能は、key が一致した機能を除いた中から名前（と分類）が同じものを 1 つだけ探して上書きする。要素も同様に、見つからない key を名前が同じ既存の要素の key に読み替え（外部エンティティ・DF はソフトウェア共通の読み替えにして機能をまたいで使う）、データフローの from / to も読み替えてから差分を計算する | 修正を依頼した機能が、同名の別機能として増えてしまうのを防ぐため |
 | サンプルデータ | なし | 「開く」メニューと空状態に「サンプルを開く」 | 要件定義書の計算例を画面で確認できるようにするため。`domain/sampleDocument.ts` はテストの固定データも兼ねる |
 
 依存ライブラリは実装時点の最新版（MUI v9、MUI X v9、React Flow v12、zod v4、dagre v3、Vite v8）を使用した。MUI v9 では `PaperProps`・`inputProps`・`InputProps` が削除されているため、すべて `slotProps` で指定している。

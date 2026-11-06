@@ -10,10 +10,12 @@ import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
 import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
+import { dataFunctionsOwnedBy, featureIdsUnder } from '../../domain/queries';
 import { selectTree, type TreeNode } from '../../store/selectors';
 import { openSample } from '../app/commands';
 import { tokens } from '../app/theme';
 import { WarningChip } from '../common/WarningIcon';
+import { DeleteFeaturesDialog } from './DeleteFeaturesDialog';
 
 const CHILD_LABEL: Record<TreeNode['kind'], string | null> = {
   software: '大分類を追加',
@@ -52,6 +54,7 @@ export function FeatureTree() {
   const tree = selectTree(doc, null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<{ node: { kind: 'category1' | 'category2' | 'feature'; id: string; name: string }; details: string[] } | null>(null);
   const [filter, setFilter] = useState('');
   const [menu, setMenu] = useState<{ anchor: HTMLElement; node: TreeNode; siblings: TreeNode[] } | null>(null);
   /** 「別の中分類へ移動…」「別の大分類へ移動…」の移動先メニュー（ドラッグを使わない移動、FR-CT-02） */
@@ -105,7 +108,13 @@ export function FeatureTree() {
     const details: string[] = [];
     if (categories) details.push(`配下の分類 ${categories} 件`);
     if (features) details.push(`配下の機能 ${features} 件とその DFD・ファンクション`);
-    if (n.kind === 'feature' || features) details.push('この機能が所有するデータファンクションは削除されず「所有機能未設定」になります');
+    // 所有するデータファンクションがあれば、扱い（残す・削除・所有を移す）を選ぶダイアログにする（FR-CT-06）
+    if (n.kind !== 'software' && dataFunctionsOwnedBy(doc, featureIdsUnder(doc, n.id)).length) {
+      if (n.kind === 'feature') details.push('この機能のトランザクションファンクション・非計上プロセスと DFD');
+      setDeleting({ node: { kind: n.kind, id: n.id, name: n.name }, details });
+      return;
+    }
+    if (n.kind === 'feature') details.push('この機能のトランザクションファンクション・非計上プロセスと DFD');
     s.openConfirm({
       title: `「${n.name}」を削除しますか`,
       details,
@@ -385,6 +394,7 @@ export function FeatureTree() {
             </MenuItem>
           ))}
       </Menu>
+      {deleting && <DeleteFeaturesDialog node={deleting.node} details={deleting.details} onClose={() => setDeleting(null)} />}
     </Box>
   );
 }

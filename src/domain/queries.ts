@@ -1,4 +1,4 @@
-import type { Category1, Category2, Feature, FpDocument, Id, NodeRefType, Software } from './types';
+import type { Category1, Category2, DataFunction, Feature, FpDocument, Id, NodeRefType, Software } from './types';
 
 export interface FeaturePath {
   software: Software;
@@ -80,4 +80,33 @@ export function referencingFeatures(doc: FpDocument, refType: 'dataFunction' | '
     return placing.filter((id) => id !== owner);
   }
   return placing;
+}
+
+/** ツリーの節（ソフトウェア・大分類・中分類・機能）の配下にある機能の ID */
+export function featureIdsUnder(doc: FpDocument, nodeId: Id): Id[] {
+  if (doc.features[nodeId]) return [nodeId];
+  const c2 = doc.category2s[nodeId];
+  if (c2) return [...c2.featureIds];
+  const c1 = doc.category1s[nodeId];
+  if (c1) return c1.category2Ids.flatMap((id) => featureIdsUnder(doc, id));
+  const sw = doc.softwares[nodeId];
+  if (sw) return sw.category1Ids.flatMap((id) => featureIdsUnder(doc, id));
+  return [];
+}
+
+/**
+ * 機能を削除するときに扱いを決めるデータファンクション（削除する機能が所有するもの）と、
+ * それを DFD に置いている残る機能（所有を移せる先）。
+ */
+export function dataFunctionsOwnedBy(doc: FpDocument, featureIds: Id[]): { dataFunction: DataFunction; referencedBy: Feature[] }[] {
+  const removing = new Set(featureIds);
+  return Object.values(doc.dataFunctions)
+    .filter((d) => d.ownerFeatureId && removing.has(d.ownerFeatureId))
+    .sort((a, b) => a.displayNo.localeCompare(b.displayNo))
+    .map((d) => ({
+      dataFunction: d,
+      referencedBy: featuresInOrder(doc, d.softwareId).filter(
+        (f) => !removing.has(f.id) && f.dfd.nodes.some((n) => n.refType === 'dataFunction' && n.refId === d.id),
+      ),
+    }));
 }

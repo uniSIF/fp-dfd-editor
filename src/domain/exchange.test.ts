@@ -265,6 +265,55 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(clear.features[0].featurePatch).toEqual({ vendorId: null });
   });
 
+  it('機能・要素の key が書き換えられていても、名前が同じ既存の機能・要素を上書きする', () => {
+    const doc = sampleDocument();
+    const ex = buildExchange(doc, ['fReg']);
+    const f = ex.features[0];
+    // エージェントが機能の key を付け直し、TF-001 と外部エンティティの key も付け直した
+    f.key = 'NEW-F1';
+    const tf1 = f.dfd.transactionFunctions.find((t) => t.key === 'TF-001')!;
+    tf1.key = 'NEW-1';
+    tf1.complexity = 'high';
+    for (const flow of f.dfd.dataFlows) {
+      if (flow.from === 'TF-001') flow.from = 'NEW-1';
+      if (flow.to === 'TF-001') flow.to = 'NEW-1';
+    }
+    f.dfd.externalEntities[0].key = 'NEW-EE';
+    for (const flow of f.dfd.dataFlows) {
+      if (flow.from === 'EE-001') flow.from = 'NEW-EE';
+      if (flow.to === 'EE-001') flow.to = 'NEW-EE';
+    }
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(plan.errors).toEqual([]);
+    // 別の機能として追加せず、顧客登録を上書きする
+    expect(plan.features[0].featureId).toBe('fReg');
+    expect(plan.newCategories).toEqual([]);
+    expect(plan.creates).toEqual([]);
+    // 変わったのは複雑度だけ。データフローは既存のものに対応づき、増えも消えもしない
+    expect(plan.updates).toEqual([expect.objectContaining({ key: 'TF-001', patch: { complexity: 'high' } })]);
+    const fp = plan.features[0];
+    expect([fp.edgeAdds, fp.edgeRemovals, fp.removals, fp.places]).toEqual([[], [], [], []]);
+    expect(plan.warnings.join('\n')).toMatch(/名前が同じ既存の機能「顧客管理 \/ 顧客情報 \/ 顧客登録」を上書きします/);
+    expect(plan.warnings.join('\n')).toMatch(/NEW-1.*TF-001 として扱います/);
+
+    const store = createAppStore(doc);
+    expect(store.getState().applyImportPlan('sw1', plan, { layout: false }).ok).toBe(true);
+    const after = store.getState().doc;
+    expect(Object.keys(after.features)).toHaveLength(3);
+    expect(after.transactionFunctions.tf1.complexity).toBe('high');
+    expect(after.features.fReg.dfd.edges).toHaveLength(doc.features.fReg.dfd.edges.length);
+
+    // 同じ名前の機能が複数あるときは決められないので、新しい機能として追加する
+    const store2 = createAppStore(sampleDocument());
+    const c2 = store2.getState().doc.features.fReg.category2Id;
+    store2.getState().addFeature(c2, '顧客検索');
+    const amb = planImport(store2.getState().doc, 'sw1', parse(JSON.stringify({
+      features: [{ key: 'X', name: '顧客検索', category1: '顧客管理', category2: '顧客情報', dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }],
+    })), { removeMissing: false });
+    expect(amb.features[0].featureId).toBeNull();
+    expect(amb.warnings.join('\n')).toMatch(/複数あるため/);
+  });
+
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
     const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
     expect(v1.features).toHaveLength(1);

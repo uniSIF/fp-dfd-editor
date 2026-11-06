@@ -18,6 +18,12 @@ export type TextChange =
   | { target: 'entity'; refType: NodeRefType; refId: Id; field: 'name' | 'description'; value: string }
   | { target: 'edge'; featureId: Id; edgeId: Id; value: string };
 
+/**
+ * 機能を削除するときの、削除する機能が所有するデータファンクションの扱い（FR-CT-06）。
+ * 'delete' は実体ごと削除（他の DFD からも外す）、transferTo は残る機能へ所有を移す。指定しないものは所有機能を未設定にして残す。
+ */
+export type DataFunctionDisposition = Record<Id, 'delete' | { transferTo: Id }>;
+
 export interface EntityRef {
   refType: NodeRefType;
   refId: Id;
@@ -92,7 +98,7 @@ export interface DocumentSlice {
   addCategory1: (softwareId: Id, name: string) => Id;
   addCategory2: (category1Id: Id, name: string) => Id;
   renameCategory: (id: Id, name: string) => void;
-  removeCategory: (id: Id) => void;
+  removeCategory: (id: Id, dataFunctions?: DataFunctionDisposition) => void;
   /**
    * 分類の並べ替え。newIndex は移動元から取り除いたあとの並びでの位置。
    * 中分類は newParentId（大分類）を指定すると、同じソフトウェア内の別の大分類へ移す。
@@ -103,7 +109,7 @@ export interface DocumentSlice {
     id: Id,
     patch: Partial<{ name: string; devType: DevType; characteristics: number[]; vendorId: Id | null; description: string }>,
   ) => void;
-  removeFeature: (id: Id) => void;
+  removeFeature: (id: Id, dataFunctions?: DataFunctionDisposition) => void;
   moveFeature: (id: Id, category2Id: Id, newIndex: number) => void;
   resetCharacteristics: (id: Id) => void;
 

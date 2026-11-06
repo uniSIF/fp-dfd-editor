@@ -392,6 +392,21 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
   // 1. 機能の対応づけ
   const featureKeys = new Set<string>();
   const outputFeatureKeys = new Set(data.features.map((f, i) => f.key ?? `#${i + 1}`));
+  // key が一致する既存の機能を先に決め、残りは名前（と分類）で既存の機能に対応づける
+  // （エージェントが長い内部 ID の key を書き換えたり、新しい key を付けたりしても、上書きとして扱うため）
+  const exactIds = new Set(data.features.map((f) => f.key).filter((k): k is string => !!k && !!doc.features[k]));
+  const matchedIds = new Set<Id>();
+  const allFeatures = featuresInOrder(doc, softwareId);
+  const matchByName = (f: ImportFeature): { id: Id | null; ambiguous: number } => {
+    const name = f.name.trim();
+    if (!name) return { id: null, ambiguous: 0 };
+    const hits = allFeatures.filter((x) => {
+      if (x.name !== name || exactIds.has(x.id) || matchedIds.has(x.id)) return false;
+      const p = getFeaturePath(doc, x.id)!;
+      return (!f.category1 || p.category1.name === f.category1) && (!f.category2 || p.category2.name === f.category2);
+    });
+    return hits.length === 1 ? { id: hits[0].id, ambiguous: 0 } : { id: null, ambiguous: hits.length };
+  };
   data.features.forEach((f, i) => {
     const k = f.key ?? `#${i + 1}`;
     const label = f.name || k;
@@ -400,13 +415,24 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       return;
     }
     featureKeys.add(k);
-    const existing = doc.features[k];
+    let existing = doc.features[k];
+    if (!existing) {
+      const m = matchByName(f);
+      if (m.id) {
+        existing = doc.features[m.id];
+        plan.warnings.push(`機能の key「${k}」が書き出した機能と一致しないため、名前が同じ既存の機能「${featurePathLabel(doc, m.id)}」を上書きします。`);
+      } else if (m.ambiguous > 1) {
+        plan.warnings.push(`「${f.name}」という名前の機能が複数あるため、どれを上書きするか決められません。新しい機能として追加します（上書きするには、書き出した feature の key をそのまま使うよう依頼してください）。`);
+      }
+    }
     if (existing) {
-      if (softwareIdOfFeature(doc, k) !== softwareId) {
+      const id = existing.id;
+      if (softwareIdOfFeature(doc, id) !== softwareId) {
         plan.errors.push(`機能「${label}」は別のソフトウェアの機能です。`);
         return;
       }
-      const p = getFeaturePath(doc, k)!;
+      matchedIds.add(id);
+      const p = getFeaturePath(doc, id)!;
       const featurePatch: FeaturePlan['featurePatch'] = {};
       const featureChanges: string[] = [];
       if (f.name && f.name !== existing.name) { featurePatch.name = f.name; featureChanges.push(`機能名「${existing.name}」→「${f.name}」`); }
@@ -419,7 +445,7 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       if ((f.category1 && f.category1 !== p.category1.name) || (f.category2 && f.category2 !== p.category2.name)) {
         plan.warnings.push(`機能「${existing.name}」の分類の変更は取り込みません（分類の移動はツリーで行います）。`);
       }
-      plan.features.push(emptyFeaturePlan(k, k, existing.name, p.category1.name, p.category2.name, existing.devType, existing.vendorId, existing.description, featurePatch, featureChanges));
+      plan.features.push(emptyFeaturePlan(k, id, existing.name, p.category1.name, p.category2.name, existing.devType, existing.vendorId, existing.description, featurePatch, featureChanges));
       return;
     }
     // 新しい機能
@@ -436,9 +462,6 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     if (!c2 && !plan.newCategories.some((c) => c.category1 === f.category1 && c.category2 === f.category2)) {
       plan.newCategories.push({ category1: f.category1, category2: f.category2, newCategory1: !c1 && !plan.newCategories.some((c) => c.category1 === f.category1) });
     }
-    if (c2?.featureIds.some((id) => doc.features[id]?.name === f.name)) {
-      plan.warnings.push(`「${f.category1} / ${f.category2}」には同じ名前の機能「${f.name}」がすでにあります（別の機能として追加します）。`);
-    }
     const where = `新しい機能「${f.name}」`;
     const dev = devTypeOf(f.devType, where) ?? 'new';
     const vendorId = resolveVendor(f.vendor, where) ?? null;
@@ -446,10 +469,14 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     plan.features.push(emptyFeaturePlan(k, null, f.name, f.category1, f.category2, dev, vendorId, f.description, {}, featureChanges));
   });
   if (plan.errors.length) return plan;
+  /** 出力に含まれる既存の機能（名前で対応づけたものを含む） */
+  const outputFeatureIds = new Set(plan.features.map((x) => x.featureId).filter((x): x is Id => !!x));
 
   // 2. 要素の対応づけ（外部エンティティ・データファンクションはソフトウェア共通、TF・非計上プロセスは機能ごと）
   const keyTypes = new Map<string, { refType: NodeRefType; featureKey: string }>();
   const createdKeys = new Set<string>();
+  /** 名前で既存の外部エンティティ・DF に対応づけた key（ソフトウェア共通。機能をまたいで同じ key を使うため） */
+  const sharedAliases = new Map<string, string>();
   const updatedRefs = new Set<string>();
   data.features.forEach((f, i) => {
     const fp = plan.features[i];
@@ -462,9 +489,40 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     const unplaced = new Map<string, { refType: NodeRefType; refId: Id }>();
     const where = `機能「${fp.name}」`;
 
+    // エージェントが既存の要素の key を付け直した場合に備え、見つからない key は名前が同じ既存の要素に対応づける。
+    // TF・非計上プロセスはこの機能のもの、外部エンティティ・DF はソフトウェアのものから探す（key が一致する要素を優先）
+    const aliases = new Map<string, string>();
+    const items = (list: (typeof LIST_TYPES)[number][0]) => f.dfd[list] as (ExchangeElement & { kind?: string })[];
+    const exactKeys = new Set(LIST_TYPES.flatMap(([list]) => items(list).map((x) => x.key)).filter((x) => findExisting(x)));
+    const aliasTargets = new Set<string>();
+    for (const [list, refType] of LIST_TYPES) {
+      for (const item of items(list)) {
+        if (findExisting(item.key)) continue;
+        const shared = refType === 'externalEntity' || refType === 'dataFunction';
+        if (shared && sharedAliases.has(item.key)) {
+          aliases.set(item.key, sharedAliases.get(item.key)!);
+          continue;
+        }
+        if (!shared && !existingFeatureId) continue;
+        const name = item.name.trim();
+        const candidates: string[] =
+          refType === 'transactionFunction' ? Object.values(doc.transactionFunctions).filter((t) => t.featureId === existingFeatureId && t.name === name).map((t) => t.displayNo)
+            : refType === 'nonCountedProcess' ? Object.values(doc.nonCountedProcesses).filter((x) => x.featureId === existingFeatureId && x.name === name).map((x) => ncpKey(x.id))
+              : refType === 'dataFunction' ? Object.values(doc.dataFunctions).filter((d) => d.softwareId === softwareId && d.name === name && d.kind === item.kind).map((d) => d.displayNo)
+                : Object.values(doc.externalEntities).filter((e) => e.softwareId === softwareId && e.name === name).map((e) => e.displayNo);
+        const free = candidates.filter((c) => !exactKeys.has(c) && !aliasTargets.has(c));
+        if (free.length !== 1) continue;
+        aliases.set(item.key, free[0]);
+        aliasTargets.add(free[0]);
+        if (shared) sharedAliases.set(item.key, free[0]);
+        plan.warnings.push(`${where}: key「${item.key}」の「${name}」は、名前が同じ既存の要素 ${free[0]} として扱います（新しく作りません）。`);
+      }
+    }
+    const canonical = (k: string) => aliases.get(k) ?? k;
+
     for (const [list, refType, label] of LIST_TYPES) {
       for (const item of f.dfd[list] as (ExchangeElement & { kind?: string; complexity?: Complexity; owner?: string })[]) {
-        const k = item.key;
+        const k = canonical(item.key);
         if (localKeys.has(k)) {
           plan.errors.push(`${where}: key「${k}」が重複しています。`);
           continue;
@@ -538,7 +596,7 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         if (df && (!existingFeatureId || df.ownerFeatureId !== existingFeatureId)) {
           const owner = df.ownerFeatureId ? doc.features[df.ownerFeatureId]?.name : '未設定';
           // 所有機能も出力に含まれ、そちらで変更していればそちらで扱う
-          if (df.ownerFeatureId && outputFeatureKeys.has(df.ownerFeatureId)) { updatedRefs.delete(refKey); continue; }
+          if (df.ownerFeatureId && outputFeatureIds.has(df.ownerFeatureId)) { updatedRefs.delete(refKey); continue; }
           plan.warnings.push(`「${k} ${cur.name}」は機能「${owner}」が所有するデータファンクションのため、変更（${changes.join('、')}）は取り込みません。`);
           continue;
         }
@@ -553,7 +611,8 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       return n ? entityKey(doc, n.refType, n.refId) : '';
     };
     const existingEdges = (existingFeatureId ? doc.features[existingFeatureId].dfd.edges : []).map((e) => ({ e, from: nodeKey(e.sourceNodeId), to: nodeKey(e.targetNodeId), matched: false }));
-    for (const flow of f.dfd.dataFlows) {
+    for (const raw of f.dfd.dataFlows) {
+      const flow = { ...raw, from: canonical(raw.from), to: canonical(raw.to) };
       const a = localKeys.get(flow.from);
       const b = localKeys.get(flow.to);
       const head = `${where}のデータフロー ${flow.from} → ${flow.to}`;

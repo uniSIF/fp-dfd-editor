@@ -7,7 +7,7 @@ import { refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
 import type { DataFunctionKind, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
-import type { ActionResult, AppState, DocumentSlice, EntityRef, PlaceOption } from './types';
+import type { ActionResult, AppState, DataFunctionDisposition, DocumentSlice, EntityRef, PlaceOption } from './types';
 
 export type ImmerSet = (fn: (s: AppState) => void) => void;
 export type Get = () => AppState;
@@ -107,6 +107,17 @@ function deleteFeatureOnDraft(doc: FpDocument, featureId: Id): void {
   const c2 = doc.category2s[f.category2Id];
   if (c2) c2.featureIds = c2.featureIds.filter((id) => id !== featureId);
   delete doc.features[featureId];
+}
+
+/** 機能を削除する前に、所有していたデータファンクションの扱いを反映する（FR-CT-06） */
+function disposeDataFunctionsOnDraft(doc: FpDocument, disposition: DataFunctionDisposition | undefined): void {
+  if (!disposition) return;
+  for (const [dfId, how] of Object.entries(disposition)) {
+    const df = doc.dataFunctions[dfId];
+    if (!df) continue;
+    if (how === 'delete') deleteEntityOnDraft(doc, 'dataFunction', dfId);
+    else if (doc.features[how.transferTo]) df.ownerFeatureId = how.transferTo;
+  }
 }
 
 function deleteCategory2OnDraft(doc: FpDocument, id: Id): void {
@@ -277,8 +288,9 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         if (d.category1s[id]) d.category1s[id].name = name;
         else if (d.category2s[id]) d.category2s[id].name = name;
       }),
-    removeCategory: (id) =>
+    removeCategory: (id, dataFunctions) =>
       mutate((d, s) => {
+        disposeDataFunctionsOnDraft(d, dataFunctions);
         if (d.category1s[id]) deleteCategory1OnDraft(d, id);
         else deleteCategory2OnDraft(d, id);
         if (s.selectedFeatureId && !d.features[s.selectedFeatureId]) {
@@ -330,8 +342,9 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       return id;
     },
     updateFeature: (id, patch) => mutate((d) => { Object.assign(d.features[id], patch); }),
-    removeFeature: (id) =>
+    removeFeature: (id, dataFunctions) =>
       mutate((d, s) => {
+        disposeDataFunctionsOnDraft(d, dataFunctions);
         deleteFeatureOnDraft(d, id);
         if (s.selectedFeatureId === id) {
           s.selectedFeatureId = null;

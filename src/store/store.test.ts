@@ -446,4 +446,41 @@ describe('store', () => {
     expect(store.getState().placeReferences(['fItem'], [{ refType: 'dataFunction', refId: 'df2' }])).toEqual({ placed: { fItem: 0 }, skipped: 1 });
     expect(store.getState().revision).toBe(rev);
   });
+  it('removeFeature / removeCategory: 所有 DF を削除するか、参照している残る機能へ所有を移せる（FR-CT-06）', async () => {
+    const { dataFunctionsOwnedBy, featureIdsUnder } = await import('../domain/queries');
+    const store = setup();
+    // 商品登録が所有する商品マスタ（DF-002）は、顧客登録の DFD から参照されている
+    const owned = dataFunctionsOwnedBy(store.getState().doc, ['fItem']);
+    expect(owned.map((o) => [o.dataFunction.id, o.referencedBy.map((f) => f.id)])).toEqual([['df2', ['fReg']]]);
+
+    store.getState().removeFeature('fItem', { df2: { transferTo: 'fReg' } });
+    let doc = store.getState().doc;
+    expect(doc.features.fItem).toBeUndefined();
+    expect(doc.dataFunctions.df2.ownerFeatureId).toBe('fReg');
+    expect(doc.features.fReg.dfd.nodes.some((n) => n.refId === 'df2')).toBe(true);
+    // 顧客登録に ILF 低 7 FP が加わる
+    expect(selectFeatureResult(doc, 'fReg')!.unadjustedFp).toBe(28);
+    undo(store);
+    expect(store.getState().doc.features.fItem).toBeDefined();
+    expect(store.getState().doc.dataFunctions.df2.ownerFeatureId).toBe('fItem');
+
+    // 削除を選ぶと、参照していた DFD からも外れる（データフローも消える）
+    store.getState().removeFeature('fItem', { df2: 'delete' });
+    doc = store.getState().doc;
+    expect(doc.dataFunctions.df2).toBeUndefined();
+    expect(doc.features.fReg.dfd.nodes.some((n) => n.refId === 'df2')).toBe(false);
+    expect(doc.features.fReg.dfd.edges.some((e) => e.id === 'e7')).toBe(false);
+    undo(store);
+
+    // 分類の削除でも同じ（配下の顧客登録が所有する顧客マスタを削除）
+    expect(featureIdsUnder(store.getState().doc, 'c2a').sort()).toEqual(['fReg', 'fSearch']);
+    store.getState().removeCategory('c2a', { df1: 'delete' });
+    doc = store.getState().doc;
+    expect(doc.dataFunctions.df1).toBeUndefined();
+    expect(doc.features.fReg).toBeUndefined();
+    // 指定しなければこれまでどおり所有機能未設定で残る
+    undo(store);
+    store.getState().removeCategory('c2a');
+    expect(store.getState().doc.dataFunctions.df1.ownerFeatureId).toBeNull();
+  });
 });

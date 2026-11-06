@@ -977,6 +977,44 @@ test('Copilot の出力の JSON ファイルを、取り込みダイアログに
   await expect(page.getByRole('dialog').getByText('ファイル「reply.txt」を読み込みました。')).toBeVisible();
 });
 
+test('機能の削除で、所有するデータファンクションを削除するか、参照している機能へ所有を移せる（FR-CT-06）', async ({ page }) => {
+  await openSample(page);
+  const openDelete = async (testId: string) => {
+    const row = page.getByTestId(testId);
+    await row.hover();
+    await row.getByRole('button', { name: 'その他の操作' }).click();
+    await page.getByRole('menuitem', { name: '削除' }).click();
+  };
+  // 商品登録は商品マスタ（顧客登録が参照）を所有する
+  await openDelete('tree-feature-商品登録');
+  let dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('「商品登録」を削除しますか')).toBeVisible();
+  await expect(dialog.getByRole('radio', { name: /残す/ })).toBeChecked();
+  await dialog.getByRole('radio', { name: /削除する/ }).check();
+  const select = dialog.getByRole('combobox', { name: '商品マスタ の扱い' });
+  await expect(select).toContainText('所有を「顧客登録」に移す');
+  await shot(page, '29-delete-feature-dfs');
+  await dialog.getByRole('button', { name: '削除', exact: true }).click();
+  await expect(page.getByText('「商品登録」を削除しました（データファンクション: 削除 0 件・所有を移動 1 件）')).toBeVisible();
+  await expect(page.getByTestId('tree-feature-商品登録')).toHaveCount(0);
+  // 顧客登録の所有になり、FP が計上される
+  await page.getByTestId('tree-feature-顧客登録').click();
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'DF-002' }).locator('[data-field="fp"]')).toHaveText('7');
+
+  // 1 回の Undo で戻し、今度は参照ごと削除する
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('tree-feature-商品登録')).toBeVisible();
+  await openDelete('tree-feature-商品登録');
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('radio', { name: /削除する/ }).check();
+  await dialog.getByRole('combobox', { name: '商品マスタ の扱い' }).click();
+  await page.getByRole('option', { name: /削除する（顧客登録 の DFD からも外す）/ }).click();
+  await dialog.getByRole('button', { name: '削除', exact: true }).click();
+  await expect(page.getByText('「商品登録」を削除しました（データファンクション: 削除 1 件）')).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: 'DF-002' })).toHaveCount(0);
+});
+
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
   await openSample(page);
   await page.locator('.react-flow__node[data-id="n1"]').click(); // 利用者
