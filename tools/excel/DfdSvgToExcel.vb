@@ -7,7 +7,7 @@ Attribute VB_Name = "DfdSvgToExcel"
 ' 使い方: このモジュールを取り込み、マクロ「ImportDfdSvgs」を実行する。
 '   ZIP ファイル、または ZIP を展開したフォルダを選ぶと、新しいブックに次のシートを作る。
 '   - 「目次」: 大分類・中分類・機能名と、各シートへのリンク
-'   - 機能ごとのシート: A1 に「大分類 / 中分類 / 機能名」、A3 を左上にして DFD の図（SVG のまま）
+'   - 機能ごとのシート: シート名は機能名（使えない文字は「_」に置き換える）。A1 に「大分類 / 中分類 / 機能名」、A3 を左上にして DFD の図（SVG のまま）
 '   ZIP の index.tsv があればその順（アプリのツリーの順）に並べ、なければフォルダ・ファイル名の順に並べる。
 '
 Option Explicit
@@ -65,16 +65,15 @@ Public Sub ImportDfdSvgs()
     Dim used As Object
     Set used = CreateObject("Scripting.Dictionary")
     used.CompareMode = vbTextCompare
-    used.Add TOC_SHEET, True
+    used.Add SheetKey(TOC_SHEET), True
 
     Dim renamed As String, failed As String, i As Long, ws As Worksheet
     For i = 0 To total - 1
-        entries(i).SheetName = UniqueSheetName(entries(i).FeatureName, used)
+        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        entries(i).SheetName = NameSheet(ws, entries(i).FeatureName, used)
         If entries(i).SheetName <> entries(i).FeatureName Then
             renamed = renamed & "・" & entries(i).FeatureName & " → " & entries(i).SheetName & vbCrLf
         End If
-        Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
-        ws.Name = entries(i).SheetName
         If Not FillSheet(ws, entries(i), fso.BuildPath(root, entries(i).RelPath)) Then
             failed = failed & "・" & entries(i).RelPath & vbCrLf
         End If
@@ -224,34 +223,65 @@ Private Sub CollectSvgs(ByVal folder As Object, ByVal prefix As String, ByVal pa
     Next child
 End Sub
 
-' Excel のシート名の制限（31 文字以内、\ / ? * [ ] : は使えない、重複不可）に合わせる
-Private Function UniqueSheetName(ByVal featureName As String, ByVal used As Object) As String
-    Dim bad As Variant, base As String, candidate As String, suffix As String, i As Long
+' シート名は機能名（小分類）だけにする。使えない文字を置き換えてから付け、
+' 同じ名前があるか Excel に拒否されたときは「 (2)」などを付けて付け直す
+Private Function NameSheet(ByVal ws As Worksheet, ByVal featureName As String, ByVal used As Object) As String
+    Dim base As String, candidate As String, suffix As String, i As Long, ok As Boolean
+    base = SafeSheetName(featureName)
+    candidate = base
+    i = 1
+    Do
+        If Not used.Exists(SheetKey(candidate)) Then
+            On Error Resume Next
+            ws.Name = candidate
+            ok = (Err.Number = 0)
+            Err.Clear
+            On Error GoTo 0
+            If ok Then Exit Do
+        End If
+        i = i + 1
+        If i > 999 Then
+            ' 名前をどうしても付けられないときは、Excel の既定の名前のままにする
+            candidate = ws.Name
+            Exit Do
+        End If
+        suffix = " (" & i & ")"
+        candidate = Left$(base, 31 - Len(suffix)) & suffix
+    Loop
+    used.Add SheetKey(candidate), True
+    NameSheet = candidate
+End Function
+
+' Excel のシート名の制限に合わせる: 31 文字以内、\ / ? * [ ] : とその全角文字・円記号・制御文字は使えない、
+' 先頭と末尾にアポストロフィーは使えない、空や「History」は使えない
+Private Function SafeSheetName(ByVal featureName As String) As String
+    Dim bad As Variant, base As String, i As Long
     base = featureName
-    For Each bad In Array("\", "/", "?", "*", "[", "]", ":")
+    For Each bad In Array("\", "/", "?", "*", "[", "]", ":", _
+                          ChrW(&HFF3C), ChrW(&HFF0F), ChrW(&HFF1F), ChrW(&HFF0A), ChrW(&HFF3B), ChrW(&HFF3D), ChrW(&HFF1A), _
+                          ChrW(&HFFE5), ChrW(&HA5))
         base = Replace(base, bad, "_")
     Next bad
-    ' 先頭と末尾のアポストロフィーは使えない
+    For i = 0 To 31
+        base = Replace(base, Chr(i), "_")
+    Next i
+    base = Trim$(base)
     Do While Left$(base, 1) = "'"
         base = Mid$(base, 2)
     Loop
     Do While Right$(base, 1) = "'"
         base = Left$(base, Len(base) - 1)
     Loop
+    If Len(base) > 31 Then base = Left$(base, 31)
     base = Trim$(base)
     If base = "" Then base = "DFD"
     If StrComp(base, "History", vbTextCompare) = 0 Then base = base & "_"
-    If Len(base) > 31 Then base = Left$(base, 31)
+    SafeSheetName = base
+End Function
 
-    candidate = base
-    i = 2
-    Do While used.Exists(candidate)
-        suffix = " (" & i & ")"
-        candidate = Left$(base, 31 - Len(suffix)) & suffix
-        i = i + 1
-    Loop
-    used.Add candidate, True
-    UniqueSheetName = candidate
+' 重複を調べるための名前。Excel は大文字と小文字、全角と半角を区別しないので、そろえてから比べる
+Private Function SheetKey(ByVal sheetName As String) As String
+    SheetKey = LCase$(StrConv(sheetName, vbNarrow))
 End Function
 
 ' 見出しと目次へのリンクを書き、A3 を左上にして SVG を貼る。貼れなければ False
