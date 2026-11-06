@@ -39,6 +39,8 @@ export interface Software {
   vendorIds: Id[];
   /** 表示用連番の次番号 */
   seq: { DF: number; TF: number; EE: number };
+  /** AI エージェント（Copilot）に渡すプロジェクト固有の補足情報（FR-IO-07）。未設定は空 */
+  agentNotes?: string;
 }
 
 export interface Category1 {

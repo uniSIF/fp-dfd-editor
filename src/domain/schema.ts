@@ -23,6 +23,7 @@ const software = z.object({
   }),
   vendorIds: z.array(id),
   seq: z.object({ DF: z.number().int(), TF: z.number().int(), EE: z.number().int() }),
+  agentNotes: z.string().optional(),
 });
 
 const dfdNode = z.object({

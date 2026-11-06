@@ -1015,6 +1015,37 @@ test('機能の削除で、所有するデータファンクションを削除�
   await expect(page.getByRole('row').filter({ hasText: 'DF-002' })).toHaveCount(0);
 });
 
+test('Copilot のエージェント用の指示に、プロジェクト固有の補足情報を入れられる（FR-IO-07）', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openSample(page);
+  const openExport = async () => {
+    await page.getByRole('button', { name: 'Copilot 連携' }).click();
+    await page.getByRole('menuitem', { name: 'Copilot 用に書き出す…' }).click();
+    return page.getByRole('dialog');
+  };
+  let dialog = await openExport();
+  const field = dialog.getByLabel('プロジェクト固有の補足情報');
+  await field.fill('- 「会員」は顧客マスタの別名として扱う\n- 帳票は EO・中 とする');
+  await expect(dialog).toContainText(/指示の文字数 [\d,]+ \/ 8,000/);
+  await shot(page, '30-agent-notes');
+  await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
+  const ins = await page.evaluate(() => navigator.clipboard.readText());
+  expect(ins).toContain('# プロジェクト固有の補足情報');
+  expect(ins).toContain('「会員」は顧客マスタの別名として扱う');
+  // 書き出す JSON の software.notes にも入る
+  await dialog.getByRole('button', { name: 'JSON だけコピー' }).click();
+  const json = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+  expect(json.software.notes).toContain('帳票は EO・中 とする');
+  await dialog.getByRole('button', { name: '閉じる' }).click();
+
+  // ソフトウェアに保存され、開き直しても残る
+  dialog = await openExport();
+  await expect(dialog.getByLabel('プロジェクト固有の補足情報')).toHaveValue('- 「会員」は顧客マスタの別名として扱う\n- 帳票は EO・中 とする');
+  // 上限を超えると警告する
+  await dialog.getByLabel('プロジェクト固有の補足情報').fill('あ'.repeat(3000));
+  await expect(dialog).toContainText('指示欄に収まりません');
+});
+
 test('外部と内部の境界を四角で囲み、ノードの移動に追従する（FR-DF-19）', async ({ page }) => {
   await openSample(page);
   await page.locator('.react-flow__node[data-id="n1"]').click(); // 利用者

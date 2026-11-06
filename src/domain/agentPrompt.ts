@@ -9,7 +9,7 @@ export const AGENT_INSTRUCTIONS = `# 役割
 
 # 受け取る JSON の読み方
 - rules: 作業ルールの要約。必ず従う。
-- software: 対象のソフトウェア。
+- software: 対象のソフトウェア。software.notes があれば、それはプロジェクト固有の補足情報（業務・用語・見積もりの決まり）なので、一般的な基準より優先して従う。
 - features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、dfd を持つ。
 - dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。
 - catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。
@@ -96,11 +96,28 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 \`\`\`
 `;
 
+/** Copilot Studio・エージェントビルダーの「指示」欄の上限 */
+export const AGENT_INSTRUCTIONS_LIMIT = 8000;
+
+/**
+ * エージェントに与える指示。プロジェクト固有の補足情報（FR-IO-07）があれば末尾に足し、一般的な基準より優先させる。
+ */
+export function buildAgentInstructions(notes = ''): string {
+  const n = notes.trim();
+  if (!n) return AGENT_INSTRUCTIONS;
+  return `${AGENT_INSTRUCTIONS}
+# プロジェクト固有の補足情報
+以下はこのプロジェクトの業務・用語・見積もりの決まりです。要素の洗い出し、種別・複雑度の判定、名前の付け方では、上の一般的な基準よりこちらを優先してください。
+
+${n}
+`;
+}
+
 /** 書き出しダイアログの「依頼文と JSON をコピー」で使う依頼文 */
-export function buildAgentRequest(json: string, request: string, withInstructions: boolean): string {
+export function buildAgentRequest(json: string, request: string, withInstructions: boolean, notes = ''): string {
   const ask = request.trim() || '書き出した機能の DFD を見直し、足りない要素とデータフローを補って完成形を返してください。';
   return [
-    withInstructions ? `${AGENT_INSTRUCTIONS}\n---\n` : '',
+    withInstructions ? `${buildAgentInstructions(notes)}\n---\n` : '',
     `次の JSON は FP DFD Editor から書き出した DFD です。\n\n依頼: ${ask}\n\n\`\`\`json\n${json}\n\`\`\`\n`,
   ].join('');
 }

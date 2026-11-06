@@ -83,6 +83,8 @@ export interface DocumentSlice {
   // ソフトウェア・設定・業者
   addSoftware: (name: string) => Id;
   renameSoftware: (id: Id, name: string) => void;
+  /** AI エージェントに渡すプロジェクト固有の補足情報を設定する（FR-IO-07） */
+  updateAgentNotes: (softwareId: Id, notes: string) => void;
   removeSoftware: (id: Id) => void;
   updateSettings: (softwareId: Id, patch: Partial<SoftwareSettings>) => void;
   addVendor: (softwareId: Id, name: string, rate: number) => Id;

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createAppStore, undo } from '../store';
-import { AGENT_INSTRUCTIONS, buildAgentRequest } from './agentPrompt';
+import { AGENT_INSTRUCTIONS, buildAgentInstructions, buildAgentRequest } from './agentPrompt';
+import { parseDocumentJson } from './migrations';
 import { buildExchange, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
 import { sampleDocument } from './sampleDocument';
 
@@ -333,5 +334,31 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(req.startsWith('# 役割')).toBe(true);
     expect(req).toContain('```json\n{"a":1}\n```');
     expect(buildAgentRequest('{}', '一括登録を追加', false)).toContain('依頼: 一括登録を追加');
+  });
+
+  it('プロジェクト固有の補足情報を、指示の末尾と書き出す JSON に入れ、保存ファイルにも残す（FR-IO-07）', () => {
+    const store = createAppStore(sampleDocument());
+    const rev = store.getState().revision;
+    store.getState().updateAgentNotes('sw1', '');
+    expect(store.getState().revision).toBe(rev); // 変わらなければ履歴を積まない
+    const notes = '- 「会員」は顧客マスタの別名\n- 帳票は EO・中 とする';
+    store.getState().updateAgentNotes('sw1', notes);
+    const doc = store.getState().doc;
+
+    expect(buildAgentInstructions('')).toBe(AGENT_INSTRUCTIONS);
+    const ins = buildAgentInstructions(`  ${notes}\n`);
+    expect(ins.startsWith(AGENT_INSTRUCTIONS)).toBe(true);
+    expect(ins).toContain('# プロジェクト固有の補足情報');
+    expect(ins.trimEnd().endsWith('- 帳票は EO・中 とする')).toBe(true);
+    expect(buildAgentRequest('{}', '', true, notes)).toContain('「会員」は顧客マスタの別名');
+
+    expect(buildExchange(doc, ['fReg']).software).toEqual({ name: '顧客管理システム', notes });
+    expect(buildExchange(sampleDocument(), ['fReg']).software).toEqual({ name: '顧客管理システム' });
+
+    const loaded = parseDocumentJson(JSON.stringify(doc));
+    if (!loaded.ok) throw new Error('load failed');
+    expect(loaded.value.softwares.sw1.agentNotes).toBe(notes);
+    undo(store);
+    expect(store.getState().doc.softwares.sw1.agentNotes).toBeUndefined();
   });
 });

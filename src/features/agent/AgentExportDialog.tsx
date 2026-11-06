@@ -9,7 +9,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMemo, useState } from 'react';
-import { AGENT_INSTRUCTIONS, buildAgentRequest } from '../../domain/agentPrompt';
+import { AGENT_INSTRUCTIONS_LIMIT, buildAgentInstructions, buildAgentRequest } from '../../domain/agentPrompt';
 import { safeFileName } from '../../domain/csvExport';
 import { buildExchange } from '../../domain/exchange';
 import { featuresInOrder, getFeaturePath } from '../../domain/queries';
@@ -36,6 +36,10 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
   }, [doc, softwareId, checked]);
   const [request, setRequest] = useState('');
   const [withInstructions, setWithInstructions] = useState(false);
+  // プロジェクト固有の補足情報（FR-IO-07）。入力中はローカルに持ち、フォーカスが外れたとき・コピー時に保存する
+  const [notes, setNotes] = useState(() => doc.softwares[softwareId]?.agentNotes ?? '');
+  const saveNotes = () => useStore.getState().updateAgentNotes(softwareId, notes);
+  const instructions = buildAgentInstructions(notes);
   const sw = doc.softwares[softwareId];
   if (!sw) return null;
   const s = useStore.getState();
@@ -95,7 +99,7 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
           />
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button variant="contained" disabled={!json} onClick={() => copy(buildAgentRequest(json, request, withInstructions), '依頼文と JSON ')}>依頼文と JSON をコピー</Button>
+          <Button variant="contained" disabled={!json} onClick={() => { saveNotes(); void copy(buildAgentRequest(json, request, withInstructions, notes), '依頼文と JSON '); }}>依頼文と JSON をコピー</Button>
           <Button variant="outlined" color="inherit" disabled={!json} sx={{ borderColor: tokens.borderStrong }} onClick={() => copy(json, 'JSON ')}>JSON だけコピー</Button>
           <Button
             variant="outlined" color="inherit" disabled={!json} sx={{ borderColor: tokens.borderStrong }}
@@ -109,7 +113,18 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
           <Typography sx={{ fontSize: 12, color: tokens.textSecondary, mb: 2 }}>
             Copilot Studio やエージェントビルダーでエージェントを作るときは、この指示を「指示」欄に貼ります。設定しておけば、毎回は「依頼文と JSON」だけを渡せば済みます。
           </Typography>
-          <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong }} onClick={() => copy(AGENT_INSTRUCTIONS, 'エージェント用の指示')}>
+          <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, mb: '2px' }}>プロジェクト固有の補足情報（任意）</Typography>
+          <TextField
+            fullWidth multiline minRows={3} maxRows={10} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes}
+            placeholder={'例:\n- 「会員」は顧客マスタの別名。会員〜の画面は顧客マスタを更新する EI として数える\n- 帳票は社内標準により、項目数にかかわらず EO・中 とする\n- 基幹システム（SAP）のデータは EIF として参照する'}
+            slotProps={{ htmlInput: { 'aria-label': 'プロジェクト固有の補足情報' } }}
+          />
+          <Typography sx={{ fontSize: 11, color: instructions.length > AGENT_INSTRUCTIONS_LIMIT ? tokens.error : tokens.textSecondary, mt: '2px', mb: 2 }}>
+            業務の用語、要素の数え方の社内ルールなどを書くと、エージェント用の指示の末尾に足され、一般的な基準より優先されます。書き出す JSON にも入ります（このソフトウェアに保存）。
+            指示の文字数 {instructions.length.toLocaleString()} / {AGENT_INSTRUCTIONS_LIMIT.toLocaleString()}
+            {instructions.length > AGENT_INSTRUCTIONS_LIMIT && ' — 指示欄に収まりません。補足情報を短くするか、エージェントのナレッジにファイルとして追加してください。'}
+          </Typography>
+          <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong }} onClick={() => { saveNotes(); void copy(instructions, 'エージェント用の指示'); }}>
             エージェント用の指示をコピー
           </Button>
         </Box>

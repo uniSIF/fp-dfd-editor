@@ -216,6 +216,10 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       return sw.id;
     },
     renameSoftware: (id, name) => mutate((d) => { d.softwares[id].name = name; }),
+    updateAgentNotes: (softwareId, notes) => {
+      if ((get().doc.softwares[softwareId]?.agentNotes ?? '') === notes) return;
+      mutate((d) => { d.softwares[softwareId].agentNotes = notes; });
+    },
     removeSoftware: (id) =>
       mutate((d, s) => {
         const sw = d.softwares[id];

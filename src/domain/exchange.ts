@@ -72,6 +72,7 @@ const RULES = {
   placed: '"placed": false の要素は、機能に属するが DFD に置いていない要素。そのままにすれば置かれない。DFD に置くなら placed を消す',
   split:
     '外部エンティティの "split": true は、同じ外部エンティティを入力元（左）と出力先（右）の 2 か所に分けて置くこと。dataFlows の from に書くと左、to に書くと右のノードにつながる。流用元の外部エンティティが split なら、新しい機能でも split: true を付ける',
+  notes: 'software.notes があれば、プロジェクト固有の補足情報（業務・用語・見積もりの決まり）として、一般的な基準より優先して従う',
   output: '返答の JSON は 1 つのコードブロック（```json）にまとめる。説明文はコードブロックの外に書いてよい',
 } as const;
 
@@ -123,7 +124,8 @@ export function buildExchange(doc: FpDocument, featureIds: Id[]) {
     format: EXCHANGE_FORMAT,
     version: EXCHANGE_VERSION,
     rules: RULES,
-    software: { name: doc.softwares[swId].name },
+    // プロジェクト固有の補足情報（FR-IO-07）。指示に入れていないエージェントにも伝わるよう JSON にも入れる
+    software: { name: doc.softwares[swId].name, ...(doc.softwares[swId].agentNotes?.trim() ? { notes: doc.softwares[swId].agentNotes!.trim() } : {}) },
     features: ordered.map((f) => {
       const p = getFeaturePath(doc, f.id)!;
       return {
