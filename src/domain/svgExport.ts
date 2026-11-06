@@ -1,7 +1,8 @@
 import { BADGE_COLORS, BOUNDARY, COLORS, GEOMETRY, boxCenter, clipToBoundary, computeBoundary, nodeBox, nodeLayout, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
-import { getFeaturePath, refName } from './queries';
+import { safeFileName } from './csvExport';
+import { featuresInOrder, getFeaturePath, refName } from './queries';
 import type { DfdNode, FpDocument, Id } from './types';
 
 function esc(s: string): string {
@@ -42,6 +43,35 @@ function labelLines(cx: number, cy: number, lines: string[], attrs: string): str
   const lh = GEOMETRY.label.fontSize + 3;
   const top = cy - ((lines.length - 1) * lh) / 2;
   return lines.map((l, i) => text(cx, top + i * lh + 4, l, attrs)).join('');
+}
+
+/**
+ * ソフトウェアのすべての DFD を SVG にする（FR-SVG-07）。要素のない DFD は除く。
+ * パスは「大分類/中分類/機能名.svg」で、同じパスになる機能には「 (2)」などを付ける。
+ */
+export function buildAllDfdSvgs(doc: FpDocument, softwareId: Id): { featureId: Id; path: string; category1: string; category2: string; name: string; svg: string }[] {
+  const used = new Set<string>();
+  return featuresInOrder(doc, softwareId)
+    .filter((f) => f.dfd.nodes.length > 0)
+    .map((f) => {
+      const p = getFeaturePath(doc, f.id)!;
+      const base = [p.category1.name, p.category2.name, f.name].map(safeFileName).join('/');
+      let path = `${base}.svg`;
+      for (let i = 2; used.has(path); i++) path = `${base} (${i}).svg`;
+      used.add(path);
+      return { featureId: f.id, path, category1: p.category1.name, category2: p.category2.name, name: f.name, svg: buildDfdSvg(doc, f.id) };
+    });
+}
+
+/**
+ * 一括出力の ZIP に入れる目次（index.tsv）。ツリーの順と元の名前を Excel のマクロ（tools/excel）に渡す。
+ * UTF-8・タブ区切りで、列はパス・大分類・中分類・機能名。1 行目は見出し
+ */
+export function buildDfdIndexTsv(files: { path: string; category1: string; category2: string; name: string }[]): string {
+  const cell = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
+  return [['パス', '大分類', '中分類', '機能名'], ...files.map((f) => [f.path, f.category1, f.category2, f.name])]
+    .map((row) => row.map(cell).join('\t'))
+    .join('\r\n') + '\r\n';
 }
 
 /** DFD を SVG 文字列にする（FR-SVG-01〜05、design.md 9.2） */

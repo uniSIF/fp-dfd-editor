@@ -74,6 +74,8 @@ const RULES = {
   split:
     '外部エンティティの "split": true は、同じ外部エンティティを入力元（左）と出力先（右）の 2 か所に分けて置くこと。dataFlows の from に書くと左、to に書くと右のノードにつながる。流用元の外部エンティティが split なら、新しい機能でも split: true を付ける',
   questions: '少しでも判断に迷う点があれば、JSON を返す前にユーザーに質問する。迷う点を選択肢とおすすめ付きでまとめて聞き、回答を受けてから JSON を作る',
+  names:
+    '要素の名前はソフトウェア全体で重ねない。トランザクション・非計上プロセスは catalog.transactionFunctions・catalog.nonCountedProcesses と、返答内のほかの機能のものとも違う名前にする。新しい外部エンティティ・データファンクション・機能も catalog にある名前と重ねない（同じものなら catalog の key で参照する）',
   notes: 'software.notes があれば、プロジェクト固有の補足情報（業務・用語・見積もりの決まり）として、一般的な基準より優先して従う',
   output: '返答の JSON は 1 つのコードブロック（```json）にまとめる。説明文はコードブロックの外に書いてよい',
 } as const;
@@ -142,7 +144,7 @@ export function buildExchange(doc: FpDocument, featureIds: Id[]) {
       };
     }),
     catalog: {
-      note: '同じソフトウェアにある既存の分類・機能・外注業者・外部エンティティ・データファンクション。DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない',
+      note: '同じソフトウェアにある既存の分類・機能・外注業者・外部エンティティ・データファンクション・トランザクションファンクション・非計上プロセス。外部エンティティ・データファンクションを DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない。トランザクションファンクション・非計上プロセスは名前の重複を避けるための一覧で、ほかの機能の DFD では使えない',
       categories: featuresInOrder(doc, swId).map((f) => getFeaturePath(doc, f.id)!).reduce<{ category1: string; category2: string }[]>((acc, p) => {
         if (!acc.some((c) => c.category1 === p.category1.name && c.category2 === p.category2.name)) acc.push({ category1: p.category1.name, category2: p.category2.name });
         return acc;
@@ -158,6 +160,13 @@ export function buildExchange(doc: FpDocument, featureIds: Id[]) {
           key: d.displayNo, name: d.name, kind: d.kind, kindLabel: FUNCTION_KIND_LABELS[d.kind], complexity: d.complexity,
           owner: d.ownerFeatureId ?? '', ownerPath: d.ownerFeatureId ? featurePathLabel(doc, d.ownerFeatureId) : '未設定',
         })),
+      // 名前の重複を避けるため、書き出さない機能のものも含めて名前だけ渡す
+      transactionFunctions: featuresInOrder(doc, swId).flatMap((f) =>
+        Object.values(doc.transactionFunctions).filter((t) => t.featureId === f.id).map((t) => ({ key: t.displayNo, name: t.name, kind: t.kind, feature: f.name })),
+      ),
+      nonCountedProcesses: featuresInOrder(doc, swId).flatMap((f) =>
+        Object.values(doc.nonCountedProcesses).filter((p) => p.featureId === f.id).map((p) => ({ key: ncpKey(p.id), name: p.name, feature: f.name })),
+      ),
     },
   };
 }
@@ -673,7 +682,55 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     // 既存の機能は DFD が空のままでもよい（空の機能を含めて書き出し、そのまま返す場合）
     if (!fp.featureId && !fp.elementKeys.length) plan.errors.push(`${where}: dfd に要素がありません。`);
   });
+  if (!plan.errors.length) warnDuplicateNames(doc, softwareId, plan);
   return plan;
+}
+
+const NAME_GROUPS: { label: string; types: NodeRefType[] }[] = [
+  { label: 'トランザクション・非計上プロセス', types: ['transactionFunction', 'nonCountedProcess'] },
+  { label: 'データファンクション', types: ['dataFunction'] },
+  { label: '外部エンティティ', types: ['externalEntity'] },
+];
+
+/** 取り込み後に、新しく作る・名前を変える要素がほかの要素と同じ名前になるなら警告する（既存どうしの重複は対象外） */
+function warnDuplicateNames(doc: FpDocument, softwareId: Id, plan: ImportPlan) {
+  const norm = (s: string) => s.replace(/\s/g, '');
+  const deleted = new Set(plan.features.flatMap((f) => f.removals.filter((r) => r.mode === 'delete').map((r) => `${r.refType}:${r.refId}`)));
+  const renamed = new Map(plan.updates.filter((u) => u.patch.name).map((u) => [`${u.refType}:${u.refId}`, u.patch.name!]));
+  const featureName = (key: string | null) => plan.features.find((f) => f.key === key)?.name ?? '';
+  type Entry = { label: string; involved: boolean };
+  const existing: { refType: NodeRefType; refId: Id; key: string; name: string; feature: string }[] = [
+    ...Object.values(doc.transactionFunctions).filter((t) => softwareIdOfFeature(doc, t.featureId) === softwareId)
+      .map((t) => ({ refType: 'transactionFunction' as const, refId: t.id, key: t.displayNo, name: t.name, feature: doc.features[t.featureId]?.name ?? '' })),
+    ...Object.values(doc.nonCountedProcesses).filter((p) => softwareIdOfFeature(doc, p.featureId) === softwareId)
+      .map((p) => ({ refType: 'nonCountedProcess' as const, refId: p.id, key: ncpKey(p.id), name: p.name, feature: doc.features[p.featureId]?.name ?? '' })),
+    ...Object.values(doc.dataFunctions).filter((d) => d.softwareId === softwareId)
+      .map((d) => ({ refType: 'dataFunction' as const, refId: d.id, key: d.displayNo, name: d.name, feature: '' })),
+    ...Object.values(doc.externalEntities).filter((e) => e.softwareId === softwareId)
+      .map((e) => ({ refType: 'externalEntity' as const, refId: e.id, key: e.displayNo, name: e.name, feature: '' })),
+  ];
+  for (const g of NAME_GROUPS) {
+    const byName = new Map<string, { name: string; entries: Entry[] }>();
+    const add = (name: string, e: Entry) => {
+      const g = byName.get(norm(name)) ?? { name, entries: [] };
+      g.entries.push(e);
+      byName.set(norm(name), g);
+    };
+    for (const x of existing) {
+      const id = `${x.refType}:${x.refId}`;
+      if (!g.types.includes(x.refType) || deleted.has(id)) continue;
+      add(renamed.get(id) ?? x.name, { label: x.feature ? `${x.key}（${x.feature}）` : x.key, involved: renamed.has(id) });
+    }
+    for (const c of plan.creates) {
+      if (!g.types.includes(c.refType)) continue;
+      const f = c.refType === 'dataFunction' || c.refType === 'externalEntity' ? '' : featureName(c.featureKey);
+      add(c.name, { label: f ? `${c.key}（${f}）` : c.key, involved: true });
+    }
+    for (const { name, entries } of byName.values()) {
+      if (entries.length < 2 || !entries.some((e) => e.involved)) continue;
+      plan.warnings.push(`${g.label}の名前「${name}」が重複します: ${entries.map((e) => e.label).join('、')}。区別できる名前にするよう Copilot に依頼するか、取り込み後に名前を変えてください。`);
+    }
+  }
 }
 
 function emptyFeaturePlan(

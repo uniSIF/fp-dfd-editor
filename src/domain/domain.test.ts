@@ -6,7 +6,7 @@ import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
 import { clipToBoundary, nodeBox, wrapLabel } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
 import { sampleDocument } from './sampleDocument';
-import { buildDfdSvg } from './svgExport';
+import { buildAllDfdSvgs, buildDfdIndexTsv, buildDfdSvg } from './svgExport';
 import { findDuplicateName, validateSoftware } from './validation';
 
 describe('dfdRules（FR-DF-06）', () => {
@@ -58,6 +58,18 @@ describe('csvExport（FR-CSV）', () => {
 });
 
 describe('svgExport（FR-SVG）', () => {
+  it('すべての DFD を分類のパスで SVG にし、要素のない DFD は除き、同じパスには番号を付ける（FR-SVG-07）', () => {
+    const doc = sampleDocument();
+    const all = buildAllDfdSvgs(doc, 'sw1');
+    // 顧客検索は DFD に要素がないため除く
+    expect(all.map((f) => f.path)).toEqual(['顧客管理/顧客情報/顧客登録.svg', '商品管理/商品情報/商品登録.svg']);
+    expect(all[0].svg).toBe(buildDfdSvg(doc, 'fReg'));
+    expect(buildDfdIndexTsv(all)).toBe('パス\t大分類\t中分類\t機能名\r\n顧客管理/顧客情報/顧客登録.svg\t顧客管理\t顧客情報\t顧客登録\r\n商品管理/商品情報/商品登録.svg\t商品管理\t商品情報\t商品登録\r\n');
+    doc.features.fSearch.name = '顧客登録';
+    doc.features.fSearch.dfd.nodes = structuredClone(doc.features.fReg.dfd.nodes);
+    expect(buildAllDfdSvgs(doc, 'sw1').map((f) => f.path)).toEqual(['顧客管理/顧客情報/顧客登録.svg', '顧客管理/顧客情報/顧客登録 (2).svg', '商品管理/商品情報/商品登録.svg']);
+  });
+
   it('整形式で、ノードとエッジの要素を含み、ズームに依存しない viewBox を持つ', () => {
     const svg = buildDfdSvg(sampleDocument(), 'fReg');
     const dom = new DOMParser().parseFromString(svg, 'image/svg+xml');

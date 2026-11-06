@@ -1,4 +1,5 @@
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
@@ -10,6 +11,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import UndoIcon from '@mui/icons-material/Undo';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import ButtonGroup from '@mui/material/ButtonGroup';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -20,7 +22,7 @@ import { useStore as useZustand } from 'zustand';
 import { useStore } from '../../store';
 import { selectIsDirty } from '../../store/selectors';
 import { CommitTextField } from '../common/CommitTextField';
-import { doRedo, doUndo, exportCsv, exportSvg, newDocument, openFile, openSample, saveDocument } from './commands';
+import { doRedo, doUndo, exportAllSvgs, exportCsv, exportSvg, newDocument, openFile, openSample, saveDocument } from './commands';
 import { tokens } from './theme';
 import { DFD_FIT_VIEW } from '../dfd/fitView';
 
@@ -116,9 +118,7 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
       <Button variant="outlined" color="inherit" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportCsv(softwareId)} disabled={!softwareId} sx={{ borderColor: tokens.borderStrong }}>
         CSV出力
       </Button>
-      <Button variant="outlined" color="inherit" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportSvg(featureId)} disabled={!featureId} sx={{ borderColor: tokens.borderStrong, ml: 1 }}>
-        SVG出力
-      </Button>
+      <SvgMenu softwareId={softwareId} featureId={featureId} />
       <AgentMenu softwareId={softwareId} featureId={featureId} />
       <Sep />
       <ToolButton title="設定" onClick={onOpenSettings} disabled={!softwareId}><SettingsOutlinedIcon fontSize="small" /></ToolButton>
@@ -127,6 +127,27 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
         <Button color="inherit" startIcon={<TuneIcon />} onClick={onToggleProperties}>プロパティ</Button>
       )}
     </Box>
+  );
+}
+
+/** SVG 出力。ボタンは選択中の機能の DFD、▼ のメニューからすべての DFD を ZIP で出力する（FR-SVG-07） */
+function SvgMenu({ softwareId, featureId }: { softwareId: string | null; featureId: string | null }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <ButtonGroup variant="outlined" color="inherit" sx={{ ml: 1, '& .MuiButtonGroup-grouped': { borderColor: tokens.borderStrong } }}>
+        <Button startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportSvg(featureId)} disabled={!featureId}>
+          SVG出力
+        </Button>
+        <Button size="small" aria-label="SVG 出力のメニュー" aria-haspopup="menu" disabled={!softwareId} onClick={(e) => setAnchor(e.currentTarget)} sx={{ px: 0.5, minWidth: 0 }}>
+          <ArrowDropDownIcon fontSize="small" />
+        </Button>
+      </ButtonGroup>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        <MenuItem dense disabled={!featureId} onClick={() => { setAnchor(null); exportSvg(featureId); }}>この機能の DFD を出力</MenuItem>
+        <MenuItem dense onClick={() => { setAnchor(null); exportAllSvgs(softwareId); }}>すべての DFD を一括出力（ZIP）</MenuItem>
+      </Menu>
+    </>
   );
 }
 

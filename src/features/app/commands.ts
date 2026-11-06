@@ -4,10 +4,11 @@ import type { LoadError, Result } from '../../domain/migrations';
 import { FP_WEIGHTS, FUNCTION_KIND_LABELS } from '../../domain/fpTables';
 import { featuresInOrder, softwareIdOfFeature } from '../../domain/queries';
 import { sampleDocument } from '../../domain/sampleDocument';
-import { buildDfdSvg } from '../../domain/svgExport';
+import { buildAllDfdSvgs, buildDfdIndexTsv, buildDfdSvg } from '../../domain/svgExport';
 import type { FpDocument, Id } from '../../domain/types';
 import { readBackup } from '../../infra/backup';
-import { downloadText } from '../../infra/download';
+import { downloadBytes, downloadText } from '../../infra/download';
+import { buildZip } from '../../infra/zip';
 import { loadFromFile, saveToFile } from '../../infra/fileIo';
 import { formatTime } from '../common/format';
 import { redo, undo, useStore } from '../../store';
@@ -96,6 +97,20 @@ export function exportSvg(featureId: Id | null): void {
   const swId = s.selectedSoftwareId;
   const swName = swId ? s.doc.softwares[swId]?.name ?? '' : '';
   downloadText(`${safeFileName(swName)}_${safeFileName(f.name)}.svg`, buildDfdSvg(s.doc, featureId), 'image/svg+xml');
+}
+
+/** ソフトウェアのすべての DFD の SVG を、分類のフォルダに分けた ZIP で出力する（FR-SVG-07） */
+export function exportAllSvgs(softwareId: Id | null): void {
+  const s = get();
+  if (!softwareId || !s.doc.softwares[softwareId]) return s.notify('ソフトウェアを選んでください', 'error');
+  const files = buildAllDfdSvgs(s.doc, softwareId);
+  if (!files.length) return s.notify('要素のある DFD がありません', 'error');
+  const sw = s.doc.softwares[softwareId];
+  const filename = `${safeFileName(sw.name)}_DFD_${timestampForFile()}.zip`;
+  const entries = [...files.map((f) => ({ path: f.path, text: f.svg })), { path: 'index.tsv', text: buildDfdIndexTsv(files) }];
+  downloadBytes(filename, buildZip(entries), 'application/zip');
+  const skipped = featuresInOrder(s.doc, softwareId).length - files.length;
+  s.notify(`${filename} に ${files.length} 件の DFD を出力しました${skipped ? `（要素のない ${skipped} 件は除外）` : ''}`, 'success');
 }
 
 export function doUndo(): void {

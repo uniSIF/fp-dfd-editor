@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const SHOTS = process.env.E2E_SHOTS;
@@ -63,6 +64,17 @@ test('CSV・SVG・保存ファイルの内容（FR-CSV、FR-SVG、FR-SV-01）', 
     return { error: d.getElementsByTagName('parsererror').length, processes: d.getElementsByTagName('ellipse').length };
   }, svg);
   expect(parsed).toEqual({ error: 0, processes: 3 });
+
+  // すべての DFD を分類のフォルダに分けた ZIP で一括出力する（FR-SVG-07）
+  await page.getByRole('button', { name: 'SVG 出力のメニュー' }).click();
+  await shot(page, '31-svg-export-menu');
+  const [zipDl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'すべての DFD を一括出力（ZIP）' }).click()]);
+  expect(zipDl.suggestedFilename()).toMatch(/^顧客管理システム_DFD_\d{8}-\d{4}\.zip$/);
+  const py = 'import sys, zipfile, json; z = zipfile.ZipFile(sys.argv[1]); print(json.dumps({"bad": z.testzip(), "names": z.namelist(), "svg": z.read(z.namelist()[0]).decode()}))';
+  const zip = JSON.parse(execFileSync('python3', ['-I', '-c', py, (await zipDl.path())!], { encoding: 'utf-8' }));
+  expect(zip).toMatchObject({ bad: null, names: ['顧客管理/顧客情報/顧客登録.svg', '商品管理/商品情報/商品登録.svg', 'index.tsv'] });
+  expect(zip.svg).toBe(svg);
+  await expect(page.getByText(/に 2 件の DFD を出力しました（要素のない 1 件は除外）/)).toBeVisible();
 
   const [jsonDl] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('ControlOrMeta+s')]);
   expect(jsonDl.suggestedFilename()).toBe('サンプルプロジェクト.fpdfd.json');

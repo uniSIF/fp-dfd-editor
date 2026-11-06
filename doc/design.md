@@ -785,6 +785,8 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options?: { padding?
 
 ファイル名は `<ソフトウェア名>_<機能名>.svg`。`downloadText(filename, svg, 'image/svg+xml')`。
 
+一括出力 [FR-SVG-07]: `buildAllDfdSvgs(doc, softwareId)` がツリー順に要素のある機能の SVG とパス（`<大分類>/<中分類>/<機能名>.svg`、重複は ` (2)` などを付ける）を返し、`infra/zip.ts` の `buildZip` で 1 つの ZIP にまとめて `downloadBytes` でダウンロードする。ZIP は依存ライブラリを増やさないため無圧縮（store）の最小実装とし、ファイル名は UTF-8（汎用フラグのビット 11）に加えて Info-ZIP Unicode Path 拡張フィールドでも書く。ZIP には `buildDfdIndexTsv` で作る `index.tsv`（パス・大分類・中分類・機能名、UTF-8・タブ区切り）も入れ、Excel のマクロ（`tools/excel/DfdSvgToExcel.vb`、取り込み用の `.bas` は `npm run build:macro` で Shift_JIS・CRLF に変換して作る）がシートの順番と元の機能名に使う。ツールバーの「SVG出力」は分割ボタンで、本体は選択中の機能、▼ のメニューから一括出力を選ぶ。
+
 ---
 
 ## 10. 検証と警告
@@ -907,6 +909,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | 4.6 計算仕様 | 5 |
 | FR-CSV-01〜05 | 9.1 |
 | FR-SVG-01〜05 | 9.2、6.2（GEOMETRY 共有） |
+| FR-SVG-07 | 9.2（`buildAllDfdSvgs`、`infra/zip.ts`）、`features/app/Toolbar.tsx`（`SvgMenu`） |
 | FR-SV-01〜02 | 8.1、8.2 |
 | FR-SV-03 | 8.3 |
 | FR-SV-04 | 8.4 |

@@ -315,6 +315,31 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(amb.warnings.join('\n')).toMatch(/複数あるため/);
   });
 
+  it('全機能の TF 名を catalog で渡し、取り込みで名前が重複する要素を警告する', () => {
+    const doc = sampleDocument();
+    const ex = buildExchange(doc, ['fReg']);
+    // 書き出さない機能の TF も名前の一覧に入る
+    expect(ex.catalog.transactionFunctions).toContainEqual({ key: 'TF-004', name: '顧客照会', kind: 'EQ', feature: '顧客検索' });
+    const dfd = (tf: string, name: string) => ({
+      externalEntities: [{ key: 'EE-001', name: '利用者' }],
+      transactionFunctions: [{ key: tf, name, kind: 'EQ', complexity: 'low' }],
+      dataFlows: [{ from: tf, to: 'EE-001', label: '結果' }],
+    });
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify({
+      features: [
+        { key: 'NEW-F1', name: '取引先照会', category1: '顧客管理', category2: '顧客情報', dfd: dfd('NEW-1', '顧客照会') },
+        { key: 'NEW-F2', name: '仕入先照会', category1: '顧客管理', category2: '顧客情報', dfd: dfd('NEW-2', '照会 ') },
+        { key: 'NEW-F3', name: '外注先照会', category1: '顧客管理', category2: '顧客情報', dfd: dfd('NEW-3', '照会') },
+      ],
+    })), { removeMissing: false });
+    expect(plan.errors).toEqual([]);
+    expect(plan.warnings).toContainEqual(expect.stringContaining('名前「顧客照会」が重複します: TF-004（顧客検索）、NEW-1（取引先照会）'));
+    expect(plan.warnings).toContainEqual(expect.stringContaining('NEW-2（仕入先照会）、NEW-3（外注先照会）'));
+    // 既存どうしの重複や、そのまま返しただけでは警告しない
+    const same = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(same.warnings.filter((w) => w.includes('重複'))).toEqual([]);
+  });
+
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
     const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
     expect(v1.features).toHaveLength(1);
