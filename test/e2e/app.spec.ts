@@ -53,7 +53,7 @@ test('CSV・SVG・保存ファイルの内容（FR-CSV、FR-SVG、FR-SV-01）', 
   const csv = readFileSync((await csvDl.path())!, 'utf-8');
   expect(csv.charCodeAt(0)).toBe(0xfeff);
   const lines = csv.slice(1).split('\r\n');
-  expect(lines[1]).toBe('顧客管理,顧客情報,顧客登録,1,0,1,1,1,3,2,3,2,1,2,3,2,1,1,2,3,2,1,新規,21,0.93,19,1.00,152,60,92,,820000,顧客の新規登録。氏名、住所、連絡先を入力し顧客マスタに登録する');
+  expect(lines[1]).toBe('顧客管理,顧客情報,顧客登録,0,1,0,0,0,0,0,1,0,1,0,0,1,0,0,3,2,3,2,1,2,3,2,1,1,2,3,2,1,新規,21,0.93,19,1.00,152,60,92,,820000,顧客の新規登録。氏名、住所、連絡先を入力し顧客マスタに登録する');
 
   const [svgDl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'SVG出力' }).click()]);
   expect(svgDl.suggestedFilename()).toBe('顧客管理システム_顧客登録.svg');

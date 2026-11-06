@@ -748,8 +748,8 @@ export function buildLedgerCsv(doc: FpDocument, softwareId: Id): string; // 台�
 アルゴリズム:
 
 1. `vendors = software.vendorIds.map(id => doc.vendors[id])`（登録順）。
-2. ヘッダ: 固定 29 列の前半（大分類〜社内工数）＋ `外注工数（${vendor.name}）` × 業者数 ＋ `開発単価` ＋ `説明`。
-3. 行: 機能ツリーの表示順（大分類 → 中分類 → 機能）で `calcFeatureResult` を呼び、列に展開する。外注工数は `result.vendorId === vendor.id` の列にのみ値を出力し、それ以外は空文字 [FR-CSV-04]。
+2. ヘッダ: 固定列の前半（大分類〜社内工数。件数は `ILF（低）, ILF（中）, ILF（高）, EIF（低）, …, EQ（高）` の 15 列）＋ `外注工数（${vendor.name}）` × 業者数 ＋ `開発単価` ＋ `説明`。
+3. 行: 機能ツリーの表示順（大分類 → 中分類 → 機能）で `calcFeatureResult` を呼び、列に展開する。件数の列は `countedFunctions(doc, featureId)` を種別と複雑度で数える。外注工数は `result.vendorId === vendor.id` の列にのみ値を出力し、それ以外は空文字 [FR-CSV-04]。
 4. 各セルは `escapeCsv()`: カンマ・改行・ダブルクォート・先頭末尾の空白を含む場合はダブルクォートで囲み、内部のダブルクォートは2つにする。
 5. 行を CRLF で結合し、先頭に `\uFEFF` を付ける。
 

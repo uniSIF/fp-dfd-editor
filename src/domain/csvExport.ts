@@ -1,7 +1,7 @@
-import { calcFeatureResultFor } from './calc';
-import { COMPLEXITY_LABELS, DEV_TYPE_LABELS, FP_WEIGHTS } from './fpTables';
+import { calcFeatureResultFor, countedFunctions } from './calc';
+import { COMPLEXITIES, COMPLEXITY_LABELS, DEV_TYPE_LABELS, FP_WEIGHTS } from './fpTables';
 import { featurePathLabel, featuresInOrder, getFeaturePath, referencingFeatures } from './queries';
-import type { FpDocument, Id } from './types';
+import type { FpDocument, FunctionKind, Id } from './types';
 
 const BOM = '﻿';
 const CRLF = '\r\n';
@@ -17,13 +17,16 @@ function toCsv(rows: (string | number)[][]): string {
   return BOM + rows.map((r) => r.map(escapeCsv).join(',')).join(CRLF) + CRLF;
 }
 
+/** CSV の件数の列の並び: 種別ごとに複雑度の低・中・高（ILF（低）, ILF（中）, ILF（高）, EIF（低）, …） */
+const COUNT_COLUMNS = (['ILF', 'EIF', 'EI', 'EO', 'EQ'] as FunctionKind[]).flatMap((kind) => COMPLEXITIES.map((complexity) => ({ kind, complexity })));
+
 /** 一覧 CSV（FR-CSV-01〜05、requirements.md 4.7） */
 export function buildCsv(doc: FpDocument, softwareId: Id): string {
   const sw = doc.softwares[softwareId];
   const vendors = sw.vendorIds.map((id) => doc.vendors[id]).filter(Boolean);
   const header = [
     '機能名（大分類）', '機能名（中分類）', '機能名（小分類）',
-    'ILF', 'EIF', 'EI', 'EO', 'EQ',
+    ...COUNT_COLUMNS.map((c) => `${c.kind}（${COMPLEXITY_LABELS[c.complexity]}）`),
     ...Array.from({ length: 14 }, (_, i) => `C${i + 1}`),
     '開発区分', '未調整FP値', '調整係数', '調整済FP値', '改修係数', '開発工数', '社内工数',
     ...vendors.map((v) => `外注工数（${v.name}）`),
@@ -33,9 +36,10 @@ export function buildCsv(doc: FpDocument, softwareId: Id): string {
   for (const f of featuresInOrder(doc, softwareId)) {
     const p = getFeaturePath(doc, f.id)!;
     const r = calcFeatureResultFor(doc, f.id, softwareId);
+    const fns = countedFunctions(doc, f.id);
     rows.push([
       p.category1.name, p.category2.name, f.name,
-      r.counts.ILF, r.counts.EIF, r.counts.EI, r.counts.EO, r.counts.EQ,
+      ...COUNT_COLUMNS.map((c) => fns.filter((x) => x.kind === c.kind && x.complexity === c.complexity).length),
       ...f.characteristics,
       DEV_TYPE_LABELS[f.devType],
       r.unadjustedFp,
