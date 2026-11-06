@@ -30,7 +30,7 @@ const TYPE_LABELS: Record<NodeRefType, string> = {
 export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onClose: () => void }) {
   const doc = useStore((s) => s.doc);
   const [text, setText] = useState('');
-  const [removeMissing, setRemoveMissing] = useState(false);
+  const [removeMissing, setRemoveMissing] = useState(true);
   const [layout, setLayout] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -181,7 +181,7 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
         <Box sx={{ display: 'flex', flexDirection: 'column' }}>
           <FormControlLabel
             control={<Checkbox size="small" checked={removeMissing} onChange={(e) => setRemoveMissing(e.target.checked)} />}
-            label={<span style={{ fontSize: 13 }}>出力に含まれる既存の機能について、出力にない要素とデータフローを削除する（その機能のトランザクション・非計上プロセス・所有するデータファンクションは削除、ほかは DFD から外す）</span>}
+            label={<span style={{ fontSize: 13 }}>既存の機能の DFD を出力の内容で上書きする（出力にない要素とデータフローを削除する。その機能のトランザクション・非計上プロセス・所有するデータファンクションは削除、ほかは DFD から外す。外すと追加と変更だけを行う）</span>}
           />
           <FormControlLabel
             control={<Checkbox size="small" checked={layout} onChange={(e) => setLayout(e.target.checked)} />}

@@ -781,6 +781,7 @@ test('Copilot 用に書き出し、エージェントの返答を取り込める
   await dialog.getByRole('button', { name: '閉じる' }).click();
 
   // エージェントの返答（説明文 + コードブロック）を模して、TF を 1 つ追加しデータフローでつなぐ
+  const original = structuredClone(json.features[0]);
   const reg = json.features[0];
   reg.dfd.transactionFunctions.push({ key: 'NEW-1', name: '顧客一括登録', kind: 'EI', complexity: 'high', description: 'CSV で複数件を登録（DET 20・FTR 1）' });
   reg.dfd.dataFlows.push({ from: 'EE-001', to: 'NEW-1', label: '顧客 CSV' }, { from: 'NEW-1', to: 'DF-001', label: '顧客データ' });
@@ -798,6 +799,18 @@ test('Copilot 用に書き出し、エージェントの返答を取り込める
   await expect(page.getByText(/Copilot の出力を取り込みました/)).toBeVisible();
   await expect(page.locator(NODE).filter({ hasText: '顧客一括登録' })).toHaveCount(1);
   await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
+
+  // 既定では既存の DFD を上書きし、出力にない要素とデータフローは削除する
+  await page.getByRole('button', { name: 'Copilot 連携' }).click();
+  await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('checkbox', { name: /既存の機能の DFD を出力の内容で上書きする/ })).toBeChecked();
+  await dialog.getByLabel('エージェントの返答').fill(reply({ format: json.format, version: 2, features: [original] }));
+  await expect(changes.getByText('顧客一括登録')).toBeVisible();
+  await expect(changes).toContainText('削除');
+  await dialog.getByRole('button', { name: '取り込む' }).click();
+  await expect(page.locator(NODE).filter({ hasText: '顧客一括登録' })).toHaveCount(0);
+  await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
 
   // エラーのある返答は取り込めない
   await page.getByRole('button', { name: 'Copilot 連携' }).click();
