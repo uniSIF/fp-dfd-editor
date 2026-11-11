@@ -842,6 +842,28 @@ test('複数の機能を参考に書き出し、新しい分類と複数の新�
   await dialog.getByRole('button', { name: 'すべて選択' }).click();
   await dialog.getByRole('checkbox', { name: '顧客検索', exact: true }).uncheck();
   await expect(dialog).toContainText('書き出す機能（2 / 3）');
+  // 全画面で開く
+  const box = (await dialog.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1);
+
+  // 名称で絞り込む（分類名も対象、空白区切りはすべての語を含むもの）。一括操作は表示中の機能だけに効く
+  const items = dialog.getByRole('list', { name: '書き出す機能' }).getByRole('listitem');
+  await dialog.getByLabel('名称で絞り込み').fill('顧客 登録');
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText('顧客登録');
+  await dialog.getByLabel('名称で絞り込み').fill('商品管理');
+  await expect(items).toHaveCount(1);
+  await dialog.getByRole('button', { name: '表示中の選択解除' }).click();
+  await expect(dialog).toContainText('書き出す機能（1 / 3）');
+  await dialog.getByRole('button', { name: '表示中をすべて選択' }).click();
+  await dialog.getByLabel('名称で絞り込み').fill('該当なし');
+  await expect(dialog).toContainText('該当する機能がありません。');
+  await expect(dialog).toContainText('うち表示外 2 件');
+  await dialog.getByRole('button', { name: 'クリア' }).click();
+  await dialog.getByLabel('選んだ機能だけ表示').check();
+  await expect(items).toHaveCount(2);
+  await dialog.getByLabel('選んだ機能だけ表示').uncheck();
+
   await dialog.getByLabel('エージェントへの依頼').fill('顧客登録・商品登録を参考に、取引先登録と取引先照会を作ってください');
   await shot(page, '24-agent-export');
   await dialog.getByRole('button', { name: 'JSON だけコピー' }).click();

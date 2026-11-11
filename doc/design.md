@@ -896,6 +896,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-IO-05 | `domain/exchange.ts`（`features[].devType` / `vendor`、`catalog.vendors`、`planImport` の `featurePatch`）、4.2（`applyImportPlan` で新しい機能の `devType` / `vendorId` を設定） |
 | FR-IO-06 | `domain/exchange.ts`（`planImport` の `matchByName`・要素の `aliases` / `sharedAliases`） |
 | FR-IO-07 | `Software.agentNotes`（省略可。スキーマも省略可で、既存の保存ファイルはそのまま読める）、4.2（`updateAgentNotes`）、`domain/agentPrompt.ts`（`buildAgentInstructions`）、`domain/exchange.ts`（`software.notes`）、`AgentExportDialog.tsx` |
+| FR-IO-08 | `features/agent/AgentExportDialog.tsx`（`fullScreen`、左に機能の一覧と絞り込み、右に依頼・コピー・エージェントの設定。`setShown` で表示中の機能だけ選択を変える） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
