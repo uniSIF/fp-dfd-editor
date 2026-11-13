@@ -3,7 +3,7 @@ import type { DfdNode } from './types';
 import { layoutDfd } from './autoLayout';
 import { buildCsv, buildLedgerCsv, escapeCsv } from './csvExport';
 import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
-import { clipToBoundary, nodeBox, wrapLabel } from './dfdGeometry';
+import { clipToBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, routeEdge, wrapLabel } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
 import { sampleDocument } from './sampleDocument';
 import { buildAllDfdSvgs, buildDfdIndexTsv, buildDfdSvg } from './svgExport';
@@ -78,7 +78,7 @@ describe('svgExport（FR-SVG）', () => {
     expect(root.getAttribute('viewBox')).toMatch(/^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$/);
     expect(root.getAttribute('font-family')).toContain('Hiragino Sans');
     expect(dom.getElementsByTagName('ellipse')).toHaveLength(3); // TF 3 件（名称が長いと横長になるので楕円）
-    expect(dom.querySelectorAll('line[marker-end]')).toHaveLength(7);
+    expect(dom.querySelectorAll('path[marker-end]')).toHaveLength(7);
     expect(svg).toContain('所有: 商品登録'); // 参照補記
     expect(svg).toContain('顧客管理システム / 顧客管理 / 顧客情報 / 顧客登録'); // タイトル
   });
@@ -120,6 +120,50 @@ describe('dfdGeometry', () => {
   it('ラベルを 2 行に折り返し、超過分は省略する', () => {
     expect(wrapLabel('顧客登録入力', 6)).toEqual(['顧客登録入力']);
     expect(wrapLabel('とても長い名前のプロセスです', 6)).toEqual(['とても長い名', '前のプロセ…']);
+  });
+
+  it('データフローのラベルは 12 文字幅で折り返し、省略しない', () => {
+    expect(edgeLabelLines('')).toEqual([]);
+    expect(edgeLabelLines('登録情報')).toEqual(['登録情報']);
+    const lines = edgeLabelLines('顧客の氏名・住所・電話番号などの登録情報（必須項目を含む）');
+    expect(lines.join('')).toBe('顧客の氏名・住所・電話番号などの登録情報（必須項目を含む）');
+    expect(lines).toHaveLength(3);
+    expect(edgeLabelSize('登録情報')).toEqual({ width: 4 * 12 + 8, height: 15 });
+    expect(edgeLabelSize('')).toEqual({ width: 0, height: 0 });
+  });
+
+  it('データフローは、途中のノードを通らなければ直線、通るなら曲線で避ける', () => {
+    const a = nodeBox('externalEntity', 0, 100);
+    const mid = nodeBox('transactionFunction', 300, 86);
+    const b = nodeBox('transactionFunction', 600, 86);
+    expect(routeEdge(a, b, [a, b]).path).toMatch(/^M [\d.]+ [\d.]+ L /);
+    const r = routeEdge(a, b, [a, mid, b]);
+    expect(r.path).toContain(' Q ');
+    // 曲線の中間点（ラベルの位置）は、真ん中のノードの外にある
+    const c = { x: mid.x + mid.width / 2, y: mid.y + mid.height / 2 };
+    expect(Math.hypot(r.label.x - c.x, r.label.y - c.y)).toBeGreaterThan(mid.width / 2);
+    // 端点は両端の図形の境界上（矢印が図形に隠れない）
+    expect(r.start.x).toBeCloseTo(a.x + a.width, 0);
+  });
+
+  it('ラベルが両端のノードに重なる短い直線は、曲げてラベルを外に出す', () => {
+    const a = nodeBox('transactionFunction', 0, 0);
+    const b = nodeBox('transactionFunction', 120, 0);
+    const size = edgeLabelSize('とても長いデータフローの説明');
+    const r = routeEdge(a, b, [a, b], size);
+    expect(r.path).toContain(' Q ');
+    expect(Math.abs(r.label.y - 44)).toBeGreaterThanOrEqual(44 + size.height / 2 - 1);
+  });
+
+  it('同じ 2 つのノードを往復するデータフローは反対側に膨らませる', () => {
+    const edges = [{ id: 'x', sourceNodeId: 'p', targetNodeId: 'q' }, { id: 'y', sourceNodeId: 'q', targetNodeId: 'p' }, { id: 'z', sourceNodeId: 'p', targetNodeId: 'r' }];
+    expect(edgeBias(edges, 'z')).toBe(0);
+    const a = nodeBox('transactionFunction', 0, 0);
+    const b = nodeBox('transactionFunction', 400, 0);
+    const rx = routeEdge(a, b, [a, b], undefined, edgeBias(edges, 'x'));
+    const ry = routeEdge(b, a, [a, b], undefined, edgeBias(edges, 'y'));
+    expect(Math.sign(rx.label.y - 44)).toBe(-Math.sign(ry.label.y - 44));
+    expect(Math.abs(rx.label.y - ry.label.y)).toBeGreaterThan(30);
   });
 
   it('ノードは名称が 2 行に収まるよう横に伸び、名称は省略しない（高さは固定）', async () => {
@@ -227,6 +271,25 @@ describe('autoLayout（FR-DF-12、FR-DF-19）', () => {
     expect(box('iso-ee').r).toBeLessThan(b.x);
     expect(box('out').l).toBeGreaterThan(b.x + b.width);
     expect(box('eif').t).toBeGreaterThan(b.y + b.height);
+  });
+
+  it('データフローのラベルが長いほど、ノードの間と境界の外の間隔を広げる', () => {
+    const N = (id: string, refType: DfdNode['refType']) => ({ id, refType, refId: id, x: 0, y: 0 });
+    const nodes = [N('ee', 'externalEntity'), N('p1', 'transactionFunction'), N('p2', 'transactionFunction')];
+    const run = (label: string) => {
+      const edges = [
+        { id: 'a', sourceNodeId: 'ee', targetNodeId: 'p1', label },
+        { id: 'b', sourceNodeId: 'p1', targetNodeId: 'p2', label },
+      ];
+      const pos = Object.fromEntries(layoutDfd(nodes, edges).map((p) => [p.nodeId, p]));
+      return { eeToP1: pos.p1.x - (pos.ee.x + 140), p1ToP2: pos.p2.x - (pos.p1.x + 88) };
+    };
+    const short = run('');
+    const long = run('顧客の氏名・住所・電話番号など');
+    const w = edgeLabelSize('顧客の氏名・住所・電話番号など').width;
+    expect(long.p1ToP2).toBeGreaterThan(short.p1ToP2);
+    expect(long.p1ToP2).toBeGreaterThanOrEqual(w);
+    expect(long.eeToP1).toBeGreaterThanOrEqual(w);
   });
 });
 

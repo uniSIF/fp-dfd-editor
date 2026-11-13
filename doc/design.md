@@ -551,10 +551,11 @@ flowchart TD
 export function layoutDfd(nodes: {id, kind, width, height}[], edges: {source, target}[]): {id, x, y}[]
 ```
 
-- dagre 設定: `rankdir: 'LR'`、`nodesep: 40`、`ranksep: 80`、`ranker: 'network-simplex'`。
+- dagre 設定: `rankdir: 'LR'`、`nodesep: 48`、`edgesep: 24`、`ranksep: 80`、`ranker: 'network-simplex'`。
+- データフローには、ラベルの大きさ（`edgeLabelSize`）に両側 28px を足した幅を `labelpos: 'c'` で渡す。dagre がラベル用の段を作るので、ラベルの長さに応じてノードの間が空く。外部エンティティの列と境界の間隔も、その列につながるデータフローのラベルが収まる幅にする（最小 56px）。
 - 外部エンティティを左、データストアを右に寄せるため、エッジがないノードには仮想エッジを追加せず、代わりに `rank` を疑似的に揃える: 外部エンティティは `rank=min`、孤立データストアは `rank=max` になるよう、孤立ノードは整列後に左端 / 右端の列へ手動配置する。
 - 結果は `applyLayout` で一括適用し、1 履歴とする。
-- 整列後に `fitView()` を呼ぶ。
+- 整列後に `fitView()` を呼ぶ。React Flow が新しい位置を取り込んでからにするため、2 フレーム待つ。
 
 ### 6.7 ズーム・パン・ミニマップ [FR-DF-13][FR-DF-14]
 
@@ -775,13 +776,18 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options?: { padding?
 | データストア | 2 本の `<line>`（幅 180、間隔 44）。左端にバッジ `<rect>`＋`<text>`。参照の場合は下に `所有: ○○`（fontSize 10、灰色） |
 | 外部エンティティ | `<rect>`（140×60、stroke 1.5） |
 | バッジ | `<rect rx=3>`＋`<text>`。色はノードコンポーネントと同じ定数（`dfdGeometry.ts` の `BADGE_COLORS`） |
-| エッジ | ノード中心同士を結ぶ直線を、両端のノード境界（円は半径、矩形は辺との交点）でクリップした `<line>`。終端に `<marker>` の矢印。ラベルは中点に白背景の `<text>` |
+| エッジ | `routeEdge` の経路の `<path>`（直線、またはノードを避ける 2 次ベジェ曲線）。両端はノード境界（円は楕円、矩形は辺との交点）でクリップする。終端に `<marker>` の矢印。ラベルは経路の中間点に、白い縁取りの `<text>` を行ごとに置く（`edgeLabelLines` で 12 文字幅ごとに折り返し、省略しない） |
 | 名称 | `<text text-anchor="middle">`。ノード幅を超える場合は 2 行に折り返し（全角 1、半角 0.5 で文字幅を概算し `GEOMETRY.label.fontSize` から収まる文字数を決める） |
 | タイトル | `<text>` で「ソフトウェア名 / 大分類 / 中分類 / 機能名」[FR-SVG-04] |
 | フォント | ルート `<svg>` に `font-family` を指定 [FR-SVG-03] |
 | 警告色 | 所有機能未設定のデータストアは stroke を警告色にする（画面と同じ） |
 
-エッジの経路は画面上の React Flow の曲線（bezier）ではなく直線とする。画面側のカスタムエッジも `StraightEdge` を基にし、見た目を SVG と一致させる [FR-SVG-03]。
+エッジの経路は `dfdGeometry.ts` の `routeEdge` で求め、画面のカスタムエッジ（`DataflowEdge`）と SVG で共有する [FR-SVG-03]。
+
+- 両端のノードの中心を結ぶ直線を基本とする。途中のノードを通る（ノードの図形を 6px 膨らませた範囲に入る）か、ラベルの矩形がノードに重なるときは、法線方向に膨らませた 2 次ベジェ曲線にする。膨らませる量は 15px 刻みで左右交互に ±450px まで試し、最初に重ならなくなったものを使う。避けきれなければ重なりが最も少ないものを使う。
+- 同じ 2 つのノードを結ぶデータフローが複数ある（往復など）ときは、`edgeBias` で ±18px ずつ反対側に膨らませて重ならないようにする。
+- 曲線上の点を約 8px おきに取り、点の外接矩形と重なるノードだけを調べる。100 ノード・150 データフローで約 55ms（単体テストで 200ms 以内を確認）。
+- 画面ではノードの移動（ドラッグ中を含む）に追従して計算し直す（`useNodes`）。
 
 ファイル名は `<ソフトウェア名>_<機能名>.svg`。`downloadText(filename, svg, 'image/svg+xml')`。
 
@@ -897,13 +903,13 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-IO-06 | `domain/exchange.ts`（`planImport` の `matchByName`・要素の `aliases` / `sharedAliases`） |
 | FR-IO-07 | `Software.agentNotes`（省略可。スキーマも省略可で、既存の保存ファイルはそのまま読める）、4.2（`updateAgentNotes`）、`domain/agentPrompt.ts`（`buildAgentInstructions`）、`domain/exchange.ts`（`software.notes`）、`AgentExportDialog.tsx` |
 | FR-IO-08 | `features/agent/AgentExportDialog.tsx`（`fullScreen`、左に機能の一覧と絞り込み、右に依頼・コピー・エージェントの設定。`setShown` で表示中の機能だけ選択を変える） |
+| FR-IO-09 | `domain/agentPrompt.ts`（指示を共通の部品から組み立てる。`FP_BOOST_INSTRUCTIONS`、`AGENTS`、`buildAgentInstructions(notes, agent)`・`buildAgentRequest(…, agent)`）、`AgentExportDialog.tsx`（「使うエージェント」の切り替え）、`doc/copilot-agent.md`（2 つ目の指示ブロック。単体テストで一致を確認） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
 | FR-DF-17、FR-SVG-06 | `domain/legend.ts`（`buildDfdLegend`、画面と SVG で共用）、`features/dfd/DfdLegend.tsx`、9.2（`renderLegend`） |
 | FR-DF-16 | 6.2（メモアイコンと Tooltip）、4.3（`hasDescription`） |
 | FR-ID-01 | 3（displayNo、seq）、`domain/ids.ts` |
-| FR-IO-09 | `domain/agentPrompt.ts`（指示を共通の部品から組み立てる。`FP_BOOST_INSTRUCTIONS`、`AGENTS`、`buildAgentInstructions(notes, agent)`・`buildAgentRequest(…, agent)`）、`AgentExportDialog.tsx`（「使うエージェント」の切り替え）、`doc/copilot-agent.md`（2 つ目の指示ブロック。単体テストで一致を確認） |
 | FR-ID-02〜03 | 5.3 |
 | FR-ID-04 | 6.4、10（duplicateName） |
 | FR-ID-05 | 7.2（FunctionLedger）、4.3（selectLedger） |
@@ -976,6 +982,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | 外部エンティティの複数配置（FR-DF-18） | 同一 DFD に同じ実体は 1 回まで | 外部エンティティに限り複数配置を許可する（`canPlaceMultiple`）。`splitExternalEntityNode` は出力側ノードを図の右端に置き、入ってくるデータフローを付け替える（1 履歴）。表から接続するときは、入力元に左端、出力先に右端のノードを使う。ファンクション表は実体単位で 1 行（`nodeIds` に全ノード） | 矢印を戻さずに一方向の流れで描けるようにするため。データファンクションは計上と参照の扱いを単純に保つため 1 回までのまま |
 | システム境界（FR-DF-19） | なし（要件追加） | 内部の要素（TF・非計上プロセス・ILF）の外接矩形に余白（左右 32px、上 56px、下 36px）を足した矩形。画面では React Flow の `boundary` ノード（選択・ドラッグ・フォーカス不可、`pointer-events: none`、zIndex -1）として描き、ドラッグ中のローカル位置から毎回計算する。SVG では線とノードより奥に描き、描画範囲に含める | 外部と内部の境界を一目で分かるようにするため。EIF は IFPUG の定義（他アプリケーションが維持）に従い外側 |
 | 自動整列の後処理（FR-DF-12、FR-DF-19） | dagre の結果をそのまま使い、孤立ノードを左右・下段に置く | dagre の結果に対し、未接続の内部要素を境界内の下段、外部エンティティを境界の左外（入力元）・右外（出力先だけ）、EIF を境界の下外に置き直す | dagre は出力だけのデータストアを入力側の外部エンティティと同じ列に置くことがあり、外部エンティティが境界の内側に入ってしまったため |
+| データフローの経路とラベル（FR-DF-12、FR-SVG-03） | 両端をクリップした直線。ラベルは 1 行 | 途中のノードやラベルの重なりを曲線で避ける（`routeEdge`）。ラベルは折り返して全文を表示し、自動整列ではラベルの大きさの分だけノードの間を空ける | 整列後に矢印がファンクションの裏を通って見えなくなる、長いラベルがノードに隠れて切れることがあったため |
 | ツリーのドラッグ並べ替え（FR-CT-02） | 上下移動のメニューのみ | HTML5 のドラッグ＆ドロップで実装（`features/tree/FeatureTree.tsx` の `planDrop`）。`moveCategory` に移動先の大分類（`newParentId`）を追加し、中分類を別の大分類へ移せるようにした。`moveCategory`・`moveFeature` はソフトウェアをまたぐ移動と並びが変わらない移動を事前に判定し、履歴を積まない | データファンクションや外注業者がソフトウェア単位のため、ソフトウェア間の移動は扱わない |
 | ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
 | 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |

@@ -215,6 +215,62 @@ test('空の状態から機能を作り、パレットで追加したノード�
   await expect(page.getByRole('button', { name: /警告 1/ })).toBeVisible();
 });
 
+test('自動整列すると、データフローはファンクションの裏を通らず、長いラベルもノードに重ならない（FR-DF-12）', async ({ page }) => {
+  await openSample(page);
+  const setLabel = async (edgeId: string, label: string) => {
+    await page.locator(`[data-testid="rf__edge-${edgeId}"]`).dblclick({ force: true });
+    await page.getByRole('textbox', { name: 'ラベル' }).fill(label);
+    await page.getByRole('textbox', { name: 'ラベル' }).press('Tab');
+  };
+  await setLabel('e1', '顧客の氏名・住所・電話番号などの登録情報');
+  await setLabel('e5', '氏名・電話番号の検索条件');
+  await setLabel('e6', '検索に一致した顧客情報');
+  await page.getByRole('button', { name: '自動整列' }).click();
+  await page.waitForTimeout(400); // 全体表示のアニメーション
+  await shot(page, '33-layout-edges');
+  // 整列後の全体表示は、整列した後の位置に合わせる（図がはみ出さない）
+  const pane = (await page.locator('.react-flow').boundingBox())!;
+  for (const id of ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']) {
+    const b = (await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox())!;
+    expect(b.x >= pane.x && b.x + b.width <= pane.x + pane.width && b.y + b.height <= pane.y + pane.height, id).toBe(true);
+  }
+
+  const ends: Record<string, [string, string]> = { e1: ['n1', 'n2'], e2: ['n2', 'n5'], e3: ['n2', 'n3'], e4: ['n3', 'n1'], e5: ['n1', 'n4'], e6: ['n5', 'n4'], e7: ['n6', 'n4'] };
+  const problems = await page.evaluate((ends) => {
+    const rect = (id: string) => document.querySelector(`.react-flow__node[data-id="${id}"]`)!.getBoundingClientRect();
+    const nodeIds = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
+    const out: string[] = [];
+    for (const [edgeId, [s, t]] of Object.entries(ends)) {
+      const path = document.querySelector(`[data-testid="rf__edge-${edgeId}"] path.react-flow__edge-path`) as SVGPathElement;
+      const m = path.getScreenCTM()!;
+      const len = path.getTotalLength();
+      for (const id of nodeIds.filter((x) => x !== s && x !== t)) {
+        const r = rect(id);
+        // 楕円の角を除くため、外接矩形の内側 6 割で判定する
+        const ix = r.width * 0.2, iy = r.height * 0.2;
+        for (let i = 1; i < 40; i++) {
+          const p = path.getPointAtLength((len * i) / 40).matrixTransform(m);
+          if (p.x > r.left + ix && p.x < r.right - ix && p.y > r.top + iy && p.y < r.bottom - iy) {
+            out.push(`${edgeId} が ${id} を通る`);
+            break;
+          }
+        }
+      }
+    }
+    for (const label of document.querySelectorAll('.react-flow__edgelabel-renderer > div')) {
+      const l = label.getBoundingClientRect();
+      for (const id of nodeIds) {
+        const r = rect(id);
+        if (l.left < r.right && l.right > r.left && l.top < r.bottom && l.bottom > r.top) out.push(`ラベル「${label.textContent}」が ${id} に重なる`);
+      }
+    }
+    return out;
+  }, ends);
+  expect(problems).toEqual([]);
+  // 長いラベルは折り返して全文を表示する
+  await expect(page.locator('.react-flow__edgelabel-renderer')).toContainText('顧客の氏名・住所・電話番号などの登録情報');
+});
+
 test('SVG 出力の見た目', async ({ page }) => {
   test.skip(!SHOTS, 'スクリーンショット指定時のみ');
   await openSample(page);
@@ -790,6 +846,15 @@ test('Copilot 用に書き出し、エージェントの返答を取り込める
   expect(json.features.map((f: { key: string }) => f.key)).toEqual(['fReg']);
   await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 役割');
+  // FP の拡充エージェントに切り替えると、指示と既定の依頼文が変わる（FR-IO-09）
+  await dialog.getByRole('button', { name: 'FP の拡充' }).click();
+  await expect(dialog.getByRole('button', { name: 'FP の拡充' })).toHaveAttribute('aria-pressed', 'true');
+  await shot(page, '32-agent-fp-boost');
+  await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 数えてはいけないもの（過剰計上）');
+  await dialog.getByLabel('エージェントへの依頼').fill('');
+  await dialog.getByRole('button', { name: '依頼文と JSON をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('依頼: 書き出した機能の DFD を見て、過剰計上にならない範囲でファンクション数を増やす案を考えてください。');
   await dialog.getByRole('button', { name: '閉じる' }).click();
 
   // エージェントの返答（説明文 + コードブロック）を模して、TF を 1 つ追加しデータフローでつなぐ
@@ -846,15 +911,6 @@ test('複数の機能を参考に書き出し、新しい分類と複数の新�
   const box = (await dialog.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1);
 
-  // FP の拡充エージェントに切り替えると、指示と既定の依頼文が変わる（FR-IO-09）
-  await dialog.getByRole('button', { name: 'FP の拡充' }).click();
-  await expect(dialog.getByRole('button', { name: 'FP の拡充' })).toHaveAttribute('aria-pressed', 'true');
-  await shot(page, '32-agent-fp-boost');
-  await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 数えてはいけないもの（過剰計上）');
-  await dialog.getByLabel('エージェントへの依頼').fill('');
-  await dialog.getByRole('button', { name: '依頼文と JSON をコピー' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('依頼: 書き出した機能の DFD を見て、過剰計上にならない範囲でファンクション数を増やす案を考えてください。');
   // 名称で絞り込む（分類名も対象、空白区切りはすべての語を含むもの）。一括操作は表示中の機能だけに効く
   const items = dialog.getByRole('list', { name: '書き出す機能' }).getByRole('listitem');
   await dialog.getByLabel('名称で絞り込み').fill('顧客 登録');

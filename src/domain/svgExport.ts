@@ -1,4 +1,4 @@
-import { BADGE_COLORS, BOUNDARY, COLORS, GEOMETRY, boxCenter, clipToBoundary, computeBoundary, nodeBox, nodeLayout, wrapLabel, type Box } from './dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, GEOMETRY, boxCenter, computeBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeEdge, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
 import { safeFileName } from './csvExport';
@@ -95,6 +95,20 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     maxX = Math.max(maxX, b.x + b.width);
     maxY = Math.max(maxY, b.y + b.height + 16); // 参照補記
   }
+  // データフローの経路（ノードを避けて曲げる）。曲線とラベルも描画範囲に含める
+  const obstacles = [...boxes.values()];
+  const routes = feature.dfd.edges.flatMap((e) => {
+    const sb = boxes.get(e.sourceNodeId);
+    const tb = boxes.get(e.targetNodeId);
+    if (!sb || !tb) return [];
+    const size = edgeLabelSize(e.label);
+    const route = routeEdge(sb, tb, obstacles, size, edgeBias(feature.dfd.edges, e.id));
+    minX = Math.min(minX, route.label.x - size.width / 2);
+    maxX = Math.max(maxX, route.label.x + size.width / 2);
+    minY = Math.min(minY, route.label.y - size.height / 2);
+    maxY = Math.max(maxY, route.label.y + size.height / 2);
+    return [{ e, route }];
+  });
   // システム境界（FR-DF-19）も描画範囲に含める
   const boundary = (options.boundary ?? true)
     ? computeBoundary(nodes.map((n) => ({ ...n, name: refName(doc, n.refType, n.refId), kind: n.refType === 'dataFunction' ? doc.dataFunctions[n.refId]?.kind : null })))
@@ -136,19 +150,17 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     );
   }
 
-  // エッジ（直線。両端を図形境界でクリップ）
-  for (const e of feature.dfd.edges) {
-    const sb = boxes.get(e.sourceNodeId);
-    const tb = boxes.get(e.targetNodeId);
-    if (!sb || !tb) continue;
-    const p1 = clipToBoundary(sb, boxCenter(tb));
-    const p2 = clipToBoundary(tb, boxCenter(sb));
-    parts.push(`<line x1="${r(p1.x)}" y1="${r(p1.y)}" x2="${r(p2.x)}" y2="${r(p2.y)}" stroke="${COLORS.borderStrong}" stroke-width="1.5" marker-end="url(#arrow)"/>`);
-    if (e.label) {
-      const mx = (p1.x + p2.x) / 2;
-      const my = (p1.y + p2.y) / 2;
-      parts.push(text(mx, my - 4, e.label, `font-size="12" fill="${COLORS.textSecondary}" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="5"`));
-    }
+  // エッジ（両端を図形境界でクリップ。途中のノードは曲線で避ける）。ラベルは線の上に重ねる
+  for (const { route } of routes) {
+    parts.push(`<path d="${route.path.replace(/-?\d+(\.\d+)?/g, (v) => r(Number(v)))}" fill="none" stroke="${COLORS.borderStrong}" stroke-width="1.5" marker-end="url(#arrow)"/>`);
+  }
+  for (const { e, route } of routes) {
+    const lines = edgeLabelLines(e.label);
+    if (!lines.length) continue;
+    const top = route.label.y - (lines.length * EDGE_LABEL.lineHeight) / 2;
+    lines.forEach((line, i) => {
+      parts.push(text(route.label.x, top + (i + 1) * EDGE_LABEL.lineHeight - 3, line, `font-size="${EDGE_LABEL.fontSize}" fill="${COLORS.textSecondary}" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="5"`));
+    });
   }
 
   for (const n of nodes) parts.push(renderNode(doc, n, boxes.get(n.id)!, featureId));

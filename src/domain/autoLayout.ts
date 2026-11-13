@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import { computeBoundary, nodeSize } from './dfdGeometry';
+import { BOUNDARY, computeBoundary, edgeLabelSize, nodeSize } from './dfdGeometry';
 import type { DfdEdge, DfdNode, FunctionKind, Id } from './types';
 
 export interface LayoutPosition {
@@ -10,8 +10,10 @@ export interface LayoutPosition {
 
 const ORIGIN = 40;
 const GAP = 40;
-/** システム境界と外側の要素の間隔 */
+/** システム境界と外側の要素の間隔（最小） */
 const OUTSIDE_GAP = 56;
+/** データフローのラベルの両側に空ける長さ（矢印の分を含む） */
+const LABEL_MARGIN = 28;
 
 type Pos = { x: number; y: number };
 
@@ -25,6 +27,7 @@ type Pos = { x: number; y: number };
  *
  * kindOf でデータファンクションの種別を渡すと ILF / EIF を区別する。省略時はすべて内部（ILF）扱い。
  * nameOf で名称を渡すと、名称の長さで変わるノードの大きさ（nodeLayout）を使って並べる。
+ * データフローのラベルの大きさ（edgeLabelSize）の分だけノードの間を空け、ラベルがノードに重ならないようにする。
  * 戻り値はノード左上座標。
  */
 export function layoutDfd(
@@ -51,12 +54,14 @@ export function layoutDfd(
 
   // 1. 接続された要素全体を dagre で並べる（外部の要素も順序付けの手がかりとして入れる）
   const g = new dagre.graphlib.Graph({ multigraph: true });
-  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, ranker: 'network-simplex' });
+  // ラベルのある辺は dagre がラベル用の段を作るので、ranksep は段の間隔の 2 倍として効く
+  g.setGraph({ rankdir: 'LR', nodesep: 48, edgesep: 24, ranksep: 80, ranker: 'network-simplex' });
   g.setDefaultEdgeLabel(() => ({}));
   for (const n of nodes) if (connected.has(n.id)) g.setNode(n.id, size(n));
   edges.forEach((e, i) => {
     if (e.sourceNodeId !== e.targetNodeId && g.hasNode(e.sourceNodeId) && g.hasNode(e.targetNodeId)) {
-      g.setEdge(e.sourceNodeId, e.targetNodeId, {}, `e${i}`);
+      const { width, height } = edgeLabelSize(e.label);
+      g.setEdge(e.sourceNodeId, e.targetNodeId, { width: width + LABEL_MARGIN, height, labelpos: 'c' }, `e${i}`);
     }
   });
   dagre.layout(g);
@@ -104,12 +109,18 @@ export function layoutDfd(
     }
   };
   const leftW = Math.max(nodeSize('externalEntity').width, ...left.map((n) => size(n).width));
+  /** 列の外部エンティティにつながるデータフローのラベルが、境界の内側の要素との間に収まる間隔 */
+  const gapFor = (list: DfdNode[]) => {
+    const ids = new Set(list.map((n) => n.id));
+    const widths = edges.filter((e) => ids.has(e.sourceNodeId) || ids.has(e.targetNodeId)).map((e) => edgeLabelSize(e.label).width);
+    return Math.max(OUTSIDE_GAP, Math.max(0, ...widths) + LABEL_MARGIN * 2 - BOUNDARY.marginX);
+  };
   if (box) {
-    placeColumn(left, box.x - OUTSIDE_GAP, true);
-    placeColumn(right, box.x + box.width + OUTSIDE_GAP);
+    placeColumn(left, box.x - gapFor(left), true);
+    placeColumn(right, box.x + box.width + gapFor(right));
   } else {
     placeColumn(left, ORIGIN + leftW, true);
-    placeColumn(right, ORIGIN + leftW + OUTSIDE_GAP * 2);
+    placeColumn(right, ORIGIN + leftW + Math.max(OUTSIDE_GAP * 2, gapFor([...left, ...right])));
   }
 
   // 4. EIF は境界の下の外側に並べる

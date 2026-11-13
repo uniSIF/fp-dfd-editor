@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import { computeBoundary, nodeSize } from '../../domain/dfdGeometry';
+import { computeBoundary, edgeBias, nodeSize } from '../../domain/dfdGeometry';
 import type { DfdEdge, Id } from '../../domain/types';
 import type { DfdNodeView } from '../../store/selectors';
 import { tokens } from '../app/theme';
@@ -30,7 +30,7 @@ export function toRfEdges(edges: DfdEdge[], selectedEdgeId: Id | null): Dataflow
     source: e.sourceNodeId,
     target: e.targetNodeId,
     type: 'dataflow',
-    data: { label: e.label },
+    data: { label: e.label, bias: edgeBias(edges, e.id) },
     selected: e.id === selectedEdgeId,
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: e.id === selectedEdgeId ? tokens.primary : tokens.borderStrong },
   }));

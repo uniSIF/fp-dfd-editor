@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calcSoftwareTotals } from './calc';
 import { buildCsv } from './csvExport';
+import { edgeBias, edgeLabelSize, nodeBox, routeEdge } from './dfdGeometry';
 import { createSoftware, emptyDocument } from './emptyDocument';
 import { validateSoftware } from './validation';
 import type { DfdNode, FpDocument } from './types';
@@ -40,5 +41,16 @@ describe('性能（NFR-02、NFR-03）', () => {
     const ms = performance.now() - t0;
     expect(totals.featureCount).toBe(200);
     expect(ms).toBeLessThan(1000);
+  });
+
+  it('100 ノード・150 データフローの DFD で、すべての経路（ノードを避ける曲線）を 200ms 以内に求める', () => {
+    // 10 × 10 の格子に並べ、離れたノードどうしも結んで、途中のノードを避ける必要がある線を多く作る
+    const boxes = Array.from({ length: 100 }, (_, i) => nodeBox(i % 3 ? 'transactionFunction' : 'dataFunction', (i % 10) * 240, Math.floor(i / 10) * 160, `要素${i}`));
+    const edges = Array.from({ length: 150 }, (_, i) => ({ id: `e${i}`, sourceNodeId: `${i % 100}`, targetNodeId: `${(i * 37 + 11) % 100}`, label: i % 2 ? '検索条件と検索結果の一覧' : '' }));
+    const t0 = performance.now();
+    for (const e of edges) routeEdge(boxes[Number(e.sourceNodeId)], boxes[Number(e.targetNodeId)], boxes, edgeLabelSize(e.label), edgeBias(edges, e.id));
+    const ms = performance.now() - t0;
+    // 実測は温まった状態で約 55ms。初回の JIT と CI の負荷を見込む
+    expect(ms).toBeLessThan(200);
   });
 });

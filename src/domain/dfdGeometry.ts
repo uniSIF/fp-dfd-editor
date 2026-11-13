@@ -110,6 +110,141 @@ export function clipToBoundary(b: Box, toward: { x: number; y: number }): { x: n
   return { x: c.x + dx * scale, y: c.y + dy * scale };
 }
 
+type Point = { x: number; y: number };
+
+/** データフローのラベル。長い説明は折り返して、幅を抑える（省略しない） */
+export const EDGE_LABEL = { fontSize: 12, lineHeight: 15, maxUnits: 12, padX: 4 } as const;
+
+export function edgeLabelLines(label: string): string[] {
+  return label ? wrapLabel(label, EDGE_LABEL.maxUnits, Infinity) : [];
+}
+
+/** ラベルの外接矩形の大きさ（背景の余白を含む）。ラベルがなければ 0 */
+export function edgeLabelSize(label: string): { width: number; height: number } {
+  const lines = edgeLabelLines(label);
+  if (!lines.length) return { width: 0, height: 0 };
+  return { width: Math.ceil(Math.max(...lines.map(textUnits)) * EDGE_LABEL.fontSize) + EDGE_LABEL.padX * 2, height: lines.length * EDGE_LABEL.lineHeight };
+}
+
+/**
+ * 同じ 2 つのノードを結ぶデータフローが複数あるとき（往復など）、重ならないよう膨らませる量。
+ * 向きの逆な線は法線も逆になるので、同じ符号の量でも反対側に膨らむ。
+ */
+export function edgeBias(edges: { id: string; sourceNodeId: string; targetNodeId: string }[], id: string): number {
+  const e = edges.find((x) => x.id === id);
+  if (!e) return 0;
+  const key = (x: typeof e) => [x.sourceNodeId, x.targetNodeId].sort().join('\n');
+  const group = edges.filter((x) => key(x) === key(e));
+  if (group.length < 2) return 0;
+  const sign = e.sourceNodeId < e.targetNodeId ? 1 : -1;
+  return (group.indexOf(e) - (group.length - 1) / 2) * 36 * sign;
+}
+
+export interface EdgeRoute {
+  /** SVG の path（直線か 2 次ベジェ曲線） */
+  path: string;
+  start: Point;
+  end: Point;
+  /** ラベルの中心（線の中間点） */
+  label: Point;
+}
+
+/** 点が図形（margin だけ膨らませた矩形・楕円）の中にあるか */
+function inside(b: Box, p: Point, margin: number): boolean {
+  const c = boxCenter(b);
+  const rx = b.width / 2 + margin;
+  const ry = b.height / 2 + margin;
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  return b.round ? (dx / rx) ** 2 + (dy / ry) ** 2 < 1 : Math.abs(dx) < rx && Math.abs(dy) < ry;
+}
+
+const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
+/**
+ * データフローの経路（design.md 9.2）。両端のノードの中心を結ぶ直線を基本とし、
+ * 途中のノード（obstacles）を通る、またはラベルがノードに重なるときは、法線方向に膨らませた曲線で避ける。
+ * 膨らませる量は bias（往復の線の振り分け）を起点に、小さい順に試す。避けきれなければ重なりが最も少ないものを使う。
+ * 画面と SVG 出力で共有する。
+ */
+export function routeEdge(sb: Box, tb: Box, obstacles: Box[], labelSize: { width: number; height: number } = { width: 0, height: 0 }, bias = 0): EdgeRoute {
+  const sc = boxCenter(sb);
+  const tc = boxCenter(tb);
+  const len = Math.hypot(tc.x - sc.x, tc.y - sc.y) || 1;
+  const nx = -(tc.y - sc.y) / len;
+  const ny = (tc.x - sc.x) / len;
+  const others = obstacles.filter((o) => !sameBox(o, sb) && !sameBox(o, tb));
+
+  type Route = EdgeRoute & { control?: Point };
+  const build = (k: number): Route => {
+    if (k === 0) {
+      const start = clipToBoundary(sb, tc);
+      const end = clipToBoundary(tb, sc);
+      return { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, end, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+    }
+    // 中間点が k だけずれるよう、制御点は中心どうしの中点から 2k 離す
+    const c = { x: (sc.x + tc.x) / 2 + nx * k * 2, y: (sc.y + tc.y) / 2 + ny * k * 2 };
+    const start = clipToBoundary(sb, c);
+    const end = clipToBoundary(tb, c);
+    return {
+      path: `M ${start.x} ${start.y} Q ${c.x} ${c.y} ${end.x} ${end.y}`,
+      start,
+      end,
+      label: { x: 0.25 * start.x + 0.5 * c.x + 0.25 * end.x, y: 0.25 * start.y + 0.5 * c.y + 0.25 * end.y },
+      control: c,
+    };
+  };
+  /** 線が通るノードと、ラベルが重なるノードの数。limit に達したら数えるのをやめる */
+  const hits = (r: Route, limit: number): number => {
+    const c = r.control;
+    const at = (t: number): Point => c
+      ? { x: (1 - t) ** 2 * r.start.x + 2 * (1 - t) * t * c.x + t ** 2 * r.end.x, y: (1 - t) ** 2 * r.start.y + 2 * (1 - t) * t * c.y + t ** 2 * r.end.y }
+      : { x: r.start.x + (r.end.x - r.start.x) * t, y: r.start.y + (r.end.y - r.start.y) * t };
+    // 曲線上の点を約 8px おきに取り、点の外接矩形と重ならないノードは調べない
+    const steps = Math.max(8, Math.ceil(Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y) / 8));
+    const pts: Point[] = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 1; i < steps; i++) {
+      const p = at(i / steps);
+      pts.push(p);
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    let n = 0;
+    for (const o of others) {
+      if (o.x - 6 > maxX || o.x + o.width + 6 < minX || o.y - 6 > maxY || o.y + o.height + 6 < minY) continue;
+      if (pts.some((p) => inside(o, p, 6))) n++;
+      if (n >= limit) return n;
+    }
+    if (labelSize.width) {
+      const lb: Box = { x: r.label.x - labelSize.width / 2, y: r.label.y - labelSize.height / 2, width: labelSize.width, height: labelSize.height, round: false };
+      for (const o of [...others, sb, tb]) {
+        const c2 = boxCenter(o);
+        // ラベルの矩形とノードの外接矩形（楕円は少し内側）が重なるか
+        const shrink = o.round ? 0.85 : 1;
+        if (Math.abs(c2.x - (lb.x + lb.width / 2)) < (o.width * shrink + lb.width) / 2 && Math.abs(c2.y - (lb.y + lb.height / 2)) < (o.height * shrink + lb.height) / 2) n++;
+      }
+    }
+    return n;
+  };
+  let best: { r: Route; n: number } | null = null;
+  for (let step = 0; step <= 30; step++) {
+    for (const k of step === 0 ? [bias] : [bias + step * 15, bias - step * 15]) {
+      const r = build(k);
+      const n = hits(r, best ? best.n : Infinity);
+      if (n === 0) return strip(r);
+      if (!best || n < best.n) best = { r, n };
+    }
+  }
+  return strip(best!.r);
+}
+
+function strip({ path, start, end, label }: EdgeRoute): EdgeRoute {
+  return { path, start, end, label };
+}
+
 /** 文字幅を概算し（charUnits）、maxUnits に収まるよう maxLines 行まで折り返す。収まらなければ末尾を「…」にする */
 export function wrapLabel(text: string, maxUnits: number, maxLines = 2): string[] {
   const lines: string[] = [];

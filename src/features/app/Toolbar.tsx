@@ -109,7 +109,8 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
         onClick={() => {
           if (!featureId) return;
           applyLayout(featureId);
-          requestAnimationFrame(() => void rf.fitView({ ...DFD_FIT_VIEW, duration: 200 }));
+          // React Flow が新しい位置を取り込んでから全体表示する（1 フレームでは整列前の位置で合わせてしまう）
+          requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView({ ...DFD_FIT_VIEW, duration: 200 })));
         }}
       >
         <AccountTreeOutlinedIcon fontSize="small" />
