@@ -72,7 +72,7 @@ function PreviewFlow({ featureId, height }: { featureId: Id; height: number }) {
   const softwareName = swId ? doc.softwares[swId]?.name ?? '' : '';
   const nodes = useMemo(() => withBoundary(toRfNodes(view, selectedNodeIds), softwareName), [view, selectedNodeIds, softwareName]);
   const dfdEdges = doc.features[featureId]?.dfd.edges;
-  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId), [dfdEdges, selectedEdgeId]);
+  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId, nodes), [dfdEdges, selectedEdgeId, nodes]);
   const rf = useReactFlow<DfdRfNode, DataflowEdgeType>();
 
   // 機能・ノード数・高さが変わったら全体が収まるように表示し直す

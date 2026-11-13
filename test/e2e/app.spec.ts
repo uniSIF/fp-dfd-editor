@@ -223,8 +223,11 @@ test('自動整列すると、データフローはファンクションの裏�
     await page.getByRole('textbox', { name: 'ラベル' }).press('Tab');
   };
   await setLabel('e1', '顧客の氏名・住所・電話番号などの登録情報');
-  await setLabel('e5', '氏名・電話番号の検索条件');
-  await setLabel('e6', '検索に一致した顧客情報');
+  await setLabel('e2', '登録する顧客データ（氏名・住所・電話番号・メール）');
+  await setLabel('e3', '登録した顧客の番号と登録日時');
+  await setLabel('e4', '登録完了のお知らせ（メール本文と宛先）');
+  await setLabel('e5', '氏名・電話番号・顧客番号などの検索条件');
+  await setLabel('e6', '検索に一致した顧客情報の一覧');
   await page.getByRole('button', { name: '自動整列' }).click();
   await page.waitForTimeout(400); // 全体表示のアニメーション
   await shot(page, '33-layout-edges');
@@ -257,13 +260,31 @@ test('自動整列すると、データフローはファンクションの裏�
         }
       }
     }
-    for (const label of document.querySelectorAll('.react-flow__edgelabel-renderer > div')) {
+    const labels = [...document.querySelectorAll('.react-flow__edgelabel-renderer > div')];
+    for (const label of labels) {
       const l = label.getBoundingClientRect();
       for (const id of nodeIds) {
         const r = rect(id);
         if (l.left < r.right && l.right > r.left && l.top < r.bottom && l.bottom > r.top) out.push(`ラベル「${label.textContent}」が ${id} に重なる`);
       }
     }
+    // ラベルは、自分以外のデータフローの線を隠さない（ラベルとエッジは同じ順に並ぶ）
+    const edgeIds = Object.keys(ends);
+    labels.forEach((label, i) => {
+      const l = label.getBoundingClientRect();
+      for (const other of edgeIds.filter((_, j) => j !== i)) {
+        const path = document.querySelector(`[data-testid="rf__edge-${other}"] path.react-flow__edge-path`) as SVGPathElement;
+        const m = path.getScreenCTM()!;
+        const len = path.getTotalLength();
+        for (let k = 1; k < 60; k++) {
+          const p = path.getPointAtLength((len * k) / 60).matrixTransform(m);
+          if (p.x > l.left && p.x < l.right && p.y > l.top && p.y < l.bottom) {
+            out.push(`ラベル「${label.textContent}」が ${other} の線を隠す`);
+            break;
+          }
+        }
+      }
+    });
     return out;
   }, ends);
   expect(problems).toEqual([]);

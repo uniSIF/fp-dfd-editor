@@ -1,4 +1,4 @@
-import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, GEOMETRY, boxCenter, computeBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeEdge, wrapLabel, type Box } from './dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, GEOMETRY, boxCenter, computeBoundary, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeDataflows, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
 import { safeFileName } from './csvExport';
@@ -95,20 +95,6 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     maxX = Math.max(maxX, b.x + b.width);
     maxY = Math.max(maxY, b.y + b.height + 16); // 参照補記
   }
-  // データフローの経路（ノードを避けて曲げる）。曲線とラベルも描画範囲に含める
-  const obstacles = [...boxes.values()];
-  const routes = feature.dfd.edges.flatMap((e) => {
-    const sb = boxes.get(e.sourceNodeId);
-    const tb = boxes.get(e.targetNodeId);
-    if (!sb || !tb) return [];
-    const size = edgeLabelSize(e.label);
-    const route = routeEdge(sb, tb, obstacles, size, edgeBias(feature.dfd.edges, e.id));
-    minX = Math.min(minX, route.label.x - size.width / 2);
-    maxX = Math.max(maxX, route.label.x + size.width / 2);
-    minY = Math.min(minY, route.label.y - size.height / 2);
-    maxY = Math.max(maxY, route.label.y + size.height / 2);
-    return [{ e, route }];
-  });
   // システム境界（FR-DF-19）も描画範囲に含める
   const boundary = (options.boundary ?? true)
     ? computeBoundary(nodes.map((n) => ({ ...n, name: refName(doc, n.refType, n.refId), kind: n.refType === 'dataFunction' ? doc.dataFunctions[n.refId]?.kind : null })))
@@ -119,6 +105,18 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     maxX = Math.max(maxX, boundary.x + boundary.width);
     maxY = Math.max(maxY, boundary.y + boundary.height);
   }
+  // データフローの経路（ノードを避けて曲げる）とラベルの位置（ほかの線・ラベルを避ける）。ラベルも描画範囲に含める
+  const routeMap = routeDataflows(boxes, feature.dfd.edges, boundary);
+  const routes = feature.dfd.edges.flatMap((e) => {
+    const route = routeMap.get(e.id);
+    if (!route) return [];
+    const size = edgeLabelSize(e.label);
+    minX = Math.min(minX, route.label.x - size.width / 2);
+    maxX = Math.max(maxX, route.label.x + size.width / 2);
+    minY = Math.min(minY, route.label.y - size.height / 2);
+    maxY = Math.max(maxY, route.label.y + size.height / 2);
+    return [{ e, route }];
+  });
   if (!nodes.length) { minX = 0; minY = 0; maxX = 320; maxY = 120; }
   // 凡例は図の右側に置き、ノードと重ならないよう描画範囲を広げる（FR-DF-17）
   const legendX = maxX + LEGEND_GAP;

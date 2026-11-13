@@ -3,7 +3,7 @@ import type { DfdNode } from './types';
 import { layoutDfd } from './autoLayout';
 import { buildCsv, buildLedgerCsv, escapeCsv } from './csvExport';
 import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
-import { clipToBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, routeEdge, wrapLabel } from './dfdGeometry';
+import { clipToBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, wrapLabel, type Box } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
 import { sampleDocument } from './sampleDocument';
 import { buildAllDfdSvgs, buildDfdIndexTsv, buildDfdSvg } from './svgExport';
@@ -122,12 +122,21 @@ describe('dfdGeometry', () => {
     expect(wrapLabel('とても長い名前のプロセスです', 6)).toEqual(['とても長い名', '前のプロセ…']);
   });
 
-  it('データフローのラベルは 12 文字幅で折り返し、省略しない', () => {
+  it('データフローのラベルは 12 文字幅以内で行の幅をそろえて折り返し、省略しない', () => {
     expect(edgeLabelLines('')).toEqual([]);
     expect(edgeLabelLines('登録情報')).toEqual(['登録情報']);
     const lines = edgeLabelLines('顧客の氏名・住所・電話番号などの登録情報（必須項目を含む）');
     expect(lines.join('')).toBe('顧客の氏名・住所・電話番号などの登録情報（必須項目を含む）');
     expect(lines).toHaveLength(3);
+    // 13 文字は 12 + 1 ではなく 7 + 6
+    expect(edgeLabelLines('登録した顧客の番号と登録日')).toEqual(['登録した顧客の', '番号と登録日']);
+    // 閉じ括弧・中点は行頭に、開き括弧は行末に置かない
+    for (const text of ['登録する顧客データ（氏名・住所・電話番号・メール）', '登録完了のお知らせ（メール本文と宛先）', 'あいうえおかきくけこさしすせそたちつてと・なにぬ']) {
+      for (const [i, line] of edgeLabelLines(text).entries()) {
+        if (i > 0) expect(line).not.toMatch(/^[）・]/);
+        expect(line).not.toMatch(/（$/);
+      }
+    }
     expect(edgeLabelSize('登録情報')).toEqual({ width: 4 * 12 + 8, height: 15 });
     expect(edgeLabelSize('')).toEqual({ width: 0, height: 0 });
   });
@@ -153,6 +162,30 @@ describe('dfdGeometry', () => {
     const r = routeEdge(a, b, [a, b], size);
     expect(r.path).toContain(' Q ');
     expect(Math.abs(r.label.y - 44)).toBeGreaterThanOrEqual(44 + size.height / 2 - 1);
+  });
+
+  it('ラベルは、ほかのデータフローの線・ラベルとシステム境界の線に重ならない位置に置く', () => {
+    // 同じ 2 つのノードを結ぶ 3 本の線は、間隔 36px で並ぶ。長いラベルを線の上に置くと隣の線を隠す
+    const ends = new Map<string, Box>([['a1', nodeBox('externalEntity', 0, 0)], ['b1', nodeBox('externalEntity', 700, 0)]]);
+    const edges = [0, 1, 2].map((i) => ({ id: `e${i}`, sourceNodeId: 'a1', targetNodeId: 'b1', label: i === 1 ? '顧客の氏名・住所・電話番号などの登録情報' : `線${i}` }));
+    const boundary = { x: 200, y: -200, width: 300, height: 400 };
+    const routes = routeDataflows(ends, edges, boundary);
+    const size = edgeLabelSize(edges[1].label);
+    const label = routes.get('e1')!.label;
+    const covers = (p: { x: number; y: number }) => Math.abs(p.x - label.x) < size.width / 2 && Math.abs(p.y - label.y) < size.height / 2;
+    for (const id of ['e0', 'e2']) {
+      const r = routes.get(id)!;
+      for (let t = 0.02; t < 1; t += 0.02) expect(covers(pointOnRoute(r, t)), `${id} t=${t}`).toBe(false);
+    }
+    // 境界の左右の辺（x=200, 500）にも重ならない
+    expect(label.x + size.width / 2 < 200 || label.x - size.width / 2 > 200).toBe(true);
+    expect(label.x + size.width / 2 < 500 || label.x - size.width / 2 > 500).toBe(true);
+    // ほかのラベルとも重ならない
+    for (const id of ['e0', 'e2']) {
+      const o = routes.get(id)!.label;
+      const os = edgeLabelSize(edges[Number(id[1])].label);
+      expect(Math.abs(o.x - label.x) >= (os.width + size.width) / 2 || Math.abs(o.y - label.y) >= (os.height + size.height) / 2).toBe(true);
+    }
   });
 
   it('同じ 2 つのノードを往復するデータフローは反対側に膨らませる', () => {
@@ -271,6 +304,36 @@ describe('autoLayout（FR-DF-12、FR-DF-19）', () => {
     expect(box('iso-ee').r).toBeLessThan(b.x);
     expect(box('out').l).toBeGreaterThan(b.x + b.width);
     expect(box('eif').t).toBeGreaterThan(b.y + b.height);
+  });
+
+  it('1 つの外部エンティティから長いラベルのデータフローが何本も出ても、整列後のラベルはほかの線を隠さない', () => {
+    const N = (id: string, refType: DfdNode['refType']): DfdNode => ({ id, refType, refId: id, x: 0, y: 0 });
+    const nodes = [N('ee', 'externalEntity'), N('p1', 'transactionFunction'), N('p2', 'transactionFunction'), N('p3', 'transactionFunction'), N('p4', 'transactionFunction'), N('ilf', 'dataFunction')];
+    const L = '顧客の氏名・住所・電話番号・メールアドレスなどの入力内容';
+    const edges = [
+      ...['p1', 'p2', 'p3', 'p4'].map((p, i) => ({ id: `in${i}`, sourceNodeId: 'ee', targetNodeId: p, label: `${L}${i}` })),
+      ...['p1', 'p2', 'p3'].map((p, i) => ({ id: `w${i}`, sourceNodeId: p, targetNodeId: 'ilf', label: `更新する顧客データ（全項目）${i}` })),
+      { id: 'r', sourceNodeId: 'ilf', targetNodeId: 'p4', label: '検索に一致した顧客の一覧' },
+      { id: 'o', sourceNodeId: 'p4', targetNodeId: 'ee', label: '検索結果の一覧（氏名・住所・電話番号）' },
+    ];
+    const pos = new Map(layoutDfd(nodes, edges).map((p) => [p.nodeId, p]));
+    const boxes = new Map<string, Box>(nodes.map((n) => [n.id, nodeBox(n.refType, pos.get(n.id)!.x, pos.get(n.id)!.y)]));
+    const routes = routeDataflows(boxes, edges);
+    const covered: string[] = [];
+    for (const e of edges) {
+      const l = routes.get(e.id)!.label;
+      const size = edgeLabelSize(e.label);
+      for (const o of edges.filter((x) => x.id !== e.id)) {
+        for (let t = 0.02; t < 1; t += 0.02) {
+          const p = pointOnRoute(routes.get(o.id)!, t);
+          if (Math.abs(p.x - l.x) < size.width / 2 && Math.abs(p.y - l.y) < size.height / 2) {
+            covered.push(`${e.id} のラベルが ${o.id} を隠す`);
+            break;
+          }
+        }
+      }
+    }
+    expect(covered).toEqual([]);
   });
 
   it('データフローのラベルが長いほど、ノードの間と境界の外の間隔を広げる', () => {

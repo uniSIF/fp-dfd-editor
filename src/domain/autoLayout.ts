@@ -14,6 +14,8 @@ const GAP = 40;
 const OUTSIDE_GAP = 56;
 /** データフローのラベルの両側に空ける長さ（矢印の分を含む） */
 const LABEL_MARGIN = 28;
+/** 外部エンティティにラベル付きのデータフローが複数あるときに、境界との間隔を広げる倍率 */
+const FAN_OUT_FACTOR = 1.6;
 
 type Pos = { x: number; y: number };
 
@@ -110,10 +112,17 @@ export function layoutDfd(
   };
   const leftW = Math.max(nodeSize('externalEntity').width, ...left.map((n) => size(n).width));
   /** 列の外部エンティティにつながるデータフローのラベルが、境界の内側の要素との間に収まる間隔 */
+  /**
+   * 1 つの外部エンティティからラベル付きのデータフローが何本も出入りするときは、線が根元で近づくので、
+   * 線の間が開く先の方にラベルを置けるよう、さらに FAN_OUT_FACTOR 倍に広げる。
+   */
   const gapFor = (list: DfdNode[]) => {
     const ids = new Set(list.map((n) => n.id));
-    const widths = edges.filter((e) => ids.has(e.sourceNodeId) || ids.has(e.targetNodeId)).map((e) => edgeLabelSize(e.label).width);
-    return Math.max(OUTSIDE_GAP, Math.max(0, ...widths) + LABEL_MARGIN * 2 - BOUNDARY.marginX);
+    const labeled = edges.filter((e) => e.label && (ids.has(e.sourceNodeId) || ids.has(e.targetNodeId)));
+    const widths = labeled.map((e) => edgeLabelSize(e.label).width);
+    const fan = Math.max(0, ...list.map((n) => labeled.filter((e) => e.sourceNodeId === n.id || e.targetNodeId === n.id).length));
+    const need = (Math.max(0, ...widths) + LABEL_MARGIN * 2) * (fan > 1 ? FAN_OUT_FACTOR : 1);
+    return Math.max(OUTSIDE_GAP, need - BOUNDARY.marginX);
   };
   if (box) {
     placeColumn(left, box.x - gapFor(left), true);

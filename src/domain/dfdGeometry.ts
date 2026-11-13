@@ -115,8 +115,36 @@ type Point = { x: number; y: number };
 /** データフローのラベル。長い説明は折り返して、幅を抑える（省略しない） */
 export const EDGE_LABEL = { fontSize: 12, lineHeight: 15, maxUnits: 12, padX: 4 } as const;
 
+/** 行頭に来てはいけない文字（句読点・閉じ括弧・長音など） */
+const NO_LINE_START = /[、。，．・：；？！）」』】〕〉》］｝ー〜…,.:;?!)\]}]/;
+/** 行末に来てはいけない文字（開き括弧） */
+const NO_LINE_END = /[（「『【〔〈《［｛([{]$/;
+
+/**
+ * 行の幅をそろえて折り返す（例: 13 文字なら 12 + 1 ではなく 7 + 6）。行頭に句読点・閉じ括弧が来るときは前の行に付け、
+ * 行末の開き括弧は次の行に送る。
+ */
 export function edgeLabelLines(label: string): string[] {
-  return label ? wrapLabel(label, EDGE_LABEL.maxUnits, Infinity) : [];
+  if (!label) return [];
+  const total = textUnits(label);
+  if (total <= EDGE_LABEL.maxUnits) return [label];
+  const width = Math.ceil(total / Math.ceil(total / EDGE_LABEL.maxUnits));
+  const lines: string[] = [];
+  let cur = '';
+  let units = 0;
+  for (const ch of label) {
+    const w = charUnits(ch);
+    if (units + w > width && cur && !NO_LINE_START.test(ch)) {
+      const carry = NO_LINE_END.test(cur) && cur.length > 1 ? cur.slice(-1) : '';
+      lines.push(carry ? cur.slice(0, -1) : cur);
+      cur = carry;
+      units = carry ? charUnits(carry) : 0;
+    }
+    cur += ch;
+    units += w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 /** ラベルの外接矩形の大きさ（背景の余白を含む）。ラベルがなければ 0 */
@@ -145,8 +173,62 @@ export interface EdgeRoute {
   path: string;
   start: Point;
   end: Point;
-  /** ラベルの中心（線の中間点） */
+  /** 2 次ベジェ曲線の制御点。直線なら null */
+  control: Point | null;
+  /** ラベルの中心。routeEdge では線の中間点、routeDataflows では他の線・ラベルを避けた位置 */
   label: Point;
+}
+
+/** 経路上の点（t は 0〜1） */
+export function pointOnRoute(r: EdgeRoute, t: number): Point {
+  const c = r.control;
+  return c
+    ? { x: (1 - t) ** 2 * r.start.x + 2 * (1 - t) * t * c.x + t ** 2 * r.end.x, y: (1 - t) ** 2 * r.start.y + 2 * (1 - t) * t * c.y + t ** 2 * r.end.y }
+    : { x: r.start.x + (r.end.x - r.start.x) * t, y: r.start.y + (r.end.y - r.start.y) * t };
+}
+
+/** 経路の接線方向の単位ベクトル（t は 0〜1） */
+function tangentOnRoute(r: EdgeRoute, t: number): Point {
+  const c = r.control;
+  const d = c
+    ? { x: 2 * (1 - t) * (c.x - r.start.x) + 2 * t * (r.end.x - c.x), y: 2 * (1 - t) * (c.y - r.start.y) + 2 * t * (r.end.y - c.y) }
+    : { x: r.end.x - r.start.x, y: r.end.y - r.start.y };
+  const len = Math.hypot(d.x, d.y) || 1;
+  return { x: d.x / len, y: d.y / len };
+}
+
+/** 経路を約 step px おきの点にする（両端を除く） */
+function sampleRoute(r: EdgeRoute, step: number): Point[] {
+  const n = Math.max(8, Math.ceil(Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y) / step));
+  const pts: Point[] = [];
+  for (let i = 1; i < n; i++) pts.push(pointOnRoute(r, i / n));
+  return pts;
+}
+
+/** 線分 a-b が矩形と交わるか（Liang–Barsky のクリッピング） */
+function segmentHitsRect(a: Point, b: Point, r: { x1: number; y1: number; x2: number; y2: number }): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[-dx, a.x - r.x1], [dx, r.x2 - a.x], [-dy, a.y - r.y1], [dy, r.y2 - a.y]]) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else {
+      const t = q / p;
+      if (p < 0) t0 = Math.max(t0, t);
+      else t1 = Math.min(t1, t);
+      if (t0 > t1) return false;
+    }
+  }
+  return true;
+}
+
+/** ラベルの矩形（中心 p）がノードの外接矩形（楕円は少し内側）に重なるか */
+function labelHitsNode(p: Point, size: { width: number; height: number }, o: Box): boolean {
+  const c = boxCenter(o);
+  const shrink = o.round ? 0.85 : 1;
+  return Math.abs(c.x - p.x) < (o.width * shrink + size.width) / 2 && Math.abs(c.y - p.y) < (o.height * shrink + size.height) / 2;
 }
 
 /** 点が図形（margin だけ膨らませた矩形・楕円）の中にあるか */
@@ -175,12 +257,11 @@ export function routeEdge(sb: Box, tb: Box, obstacles: Box[], labelSize: { width
   const ny = (tc.x - sc.x) / len;
   const others = obstacles.filter((o) => !sameBox(o, sb) && !sameBox(o, tb));
 
-  type Route = EdgeRoute & { control?: Point };
-  const build = (k: number): Route => {
+  const build = (k: number): EdgeRoute => {
     if (k === 0) {
       const start = clipToBoundary(sb, tc);
       const end = clipToBoundary(tb, sc);
-      return { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, end, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+      return { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, end, control: null, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
     }
     // 中間点が k だけずれるよう、制御点は中心どうしの中点から 2k 離す
     const c = { x: (sc.x + tc.x) / 2 + nx * k * 2, y: (sc.y + tc.y) / 2 + ny * k * 2 };
@@ -195,18 +276,11 @@ export function routeEdge(sb: Box, tb: Box, obstacles: Box[], labelSize: { width
     };
   };
   /** 線が通るノードと、ラベルが重なるノードの数。limit に達したら数えるのをやめる */
-  const hits = (r: Route, limit: number): number => {
-    const c = r.control;
-    const at = (t: number): Point => c
-      ? { x: (1 - t) ** 2 * r.start.x + 2 * (1 - t) * t * c.x + t ** 2 * r.end.x, y: (1 - t) ** 2 * r.start.y + 2 * (1 - t) * t * c.y + t ** 2 * r.end.y }
-      : { x: r.start.x + (r.end.x - r.start.x) * t, y: r.start.y + (r.end.y - r.start.y) * t };
+  const hits = (r: EdgeRoute, limit: number): number => {
     // 曲線上の点を約 8px おきに取り、点の外接矩形と重ならないノードは調べない
-    const steps = Math.max(8, Math.ceil(Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y) / 8));
-    const pts: Point[] = [];
+    const pts = sampleRoute(r, 8);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 1; i < steps; i++) {
-      const p = at(i / steps);
-      pts.push(p);
+    for (const p of pts) {
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);
       maxX = Math.max(maxX, p.x);
@@ -219,30 +293,118 @@ export function routeEdge(sb: Box, tb: Box, obstacles: Box[], labelSize: { width
       if (n >= limit) return n;
     }
     if (labelSize.width) {
-      const lb: Box = { x: r.label.x - labelSize.width / 2, y: r.label.y - labelSize.height / 2, width: labelSize.width, height: labelSize.height, round: false };
-      for (const o of [...others, sb, tb]) {
-        const c2 = boxCenter(o);
-        // ラベルの矩形とノードの外接矩形（楕円は少し内側）が重なるか
-        const shrink = o.round ? 0.85 : 1;
-        if (Math.abs(c2.x - (lb.x + lb.width / 2)) < (o.width * shrink + lb.width) / 2 && Math.abs(c2.y - (lb.y + lb.height / 2)) < (o.height * shrink + lb.height) / 2) n++;
-      }
+      for (const o of [...others, sb, tb]) if (labelHitsNode(r.label, labelSize, o)) n++;
     }
     return n;
   };
-  let best: { r: Route; n: number } | null = null;
+  let best: { r: EdgeRoute; n: number } | null = null;
   for (let step = 0; step <= 30; step++) {
     for (const k of step === 0 ? [bias] : [bias + step * 15, bias - step * 15]) {
       const r = build(k);
       const n = hits(r, best ? best.n : Infinity);
-      if (n === 0) return strip(r);
+      if (n === 0) return r;
       if (!best || n < best.n) best = { r, n };
     }
   }
-  return strip(best!.r);
+  return best!.r;
 }
 
-function strip({ path, start, end, label }: EdgeRoute): EdgeRoute {
-  return { path, start, end, label };
+/** ラベルを置く候補の位置（線の中間点から両端へ 0.06 刻み。0.14〜0.86） */
+const LABEL_POSITIONS = [0.5, ...Array.from({ length: 6 }, (_, i) => [0.5 - (i + 1) * 0.06, 0.5 + (i + 1) * 0.06]).flat()];
+
+/**
+ * DFD のすべてのデータフローの経路とラベルの位置を求める（design.md 9.2）。画面と SVG 出力で共有する。
+ * boundary を渡すと、システム境界の線にもラベルを重ねないようにする。
+ * 経路は routeEdge で 1 本ずつ求める。ラベルは、ほかのデータフローの線・ほかのラベル・ノードに重ならない位置を、
+ * 線の中間点から両端へ向かって、線の上と線の両脇（線に沿わせて横にずらす）の順に探す。
+ * 背景で線を隠さないよう、どこにも置けなければ重なりが最も少ない位置にする。大きいラベルから順に置く。
+ */
+export function routeDataflows(
+  boxes: Map<string, Box>,
+  edges: { id: string; sourceNodeId: string; targetNodeId: string; label: string }[],
+  boundary: { x: number; y: number; width: number; height: number } | null = null,
+): Map<string, EdgeRoute> {
+  const obstacles = [...boxes.values()];
+  const routes = new Map<string, EdgeRoute>();
+  for (const e of edges) {
+    const sb = boxes.get(e.sourceNodeId);
+    const tb = boxes.get(e.targetNodeId);
+    if (sb && tb) routes.set(e.id, routeEdge(sb, tb, obstacles, edgeLabelSize(e.label), edgeBias(edges, e.id)));
+  }
+  // ほかの線との重なりを調べるため、各線を約 12px おきの点を結ぶ折れ線にし、8 区間ずつ外接矩形を付けて分けておく
+  const lines: { id: string; pts: Point[]; minX: number; maxX: number; minY: number; maxY: number }[] = [];
+  for (const [id, r] of routes) {
+    const all = [r.start, ...sampleRoute(r, 12), r.end];
+    for (let i = 0; i < all.length - 1; i += 8) {
+      const pts = all.slice(i, i + 9);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      lines.push({ id, pts, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) });
+    }
+  }
+  // システム境界の線も、ラベルで隠さないよう避ける（辺ごとに 1 本の線として扱う）
+  if (boundary) {
+    const { x, y, width: w, height: h } = boundary;
+    const side = (id: string, a: Point, b: Point) => {
+      lines.push({ id, pts: [a, b], minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y) });
+    };
+    side('\u0000top', { x, y }, { x: x + w, y });
+    side('\u0000bottom', { x, y: y + h }, { x: x + w, y: y + h });
+    side('\u0000left', { x, y }, { x, y: y + h });
+    side('\u0000right', { x: x + w, y }, { x: x + w, y: y + h });
+  }
+  const placed: { p: Point; size: { width: number; height: number } }[] = [];
+  const labeled = edges
+    .filter((e) => routes.has(e.id) && e.label)
+    .map((e) => ({ e, size: edgeLabelSize(e.label) }))
+    .sort((a, b) => b.size.width * b.size.height - a.size.width * a.size.height);
+  const M = 3;
+  for (const { e, size } of labeled) {
+    const r = routes.get(e.id)!;
+    const hw = size.width / 2 + M;
+    const hh = size.height / 2 + M;
+    const cost = (p: Point, limit: number): number => {
+      let n = 0;
+      for (const o of obstacles) if (labelHitsNode(p, size, o)) n += 2;
+      if (n >= limit) return n;
+      for (const q of placed) {
+        if (Math.abs(q.p.x - p.x) < (q.size.width + size.width) / 2 + M && Math.abs(q.p.y - p.y) < (q.size.height + size.height) / 2 + M) n += 2;
+      }
+      if (n >= limit) return n;
+      const rect = { x1: p.x - hw, y1: p.y - hh, x2: p.x + hw, y2: p.y + hh };
+      const hit = new Set<string>();
+      for (const l of lines) {
+        if (l.id === e.id || hit.has(l.id) || l.minX > rect.x2 || l.maxX < rect.x1 || l.minY > rect.y2 || l.maxY < rect.y1) continue;
+        for (let i = 1; i < l.pts.length; i++) {
+          if (segmentHitsRect(l.pts[i - 1], l.pts[i], rect)) {
+            hit.add(l.id);
+            n++;
+            break;
+          }
+        }
+        if (n >= limit) return n;
+      }
+      return n;
+    };
+    let best = { p: r.label, n: Infinity };
+    search: for (const t of LABEL_POSITIONS) {
+      const on = pointOnRoute(r, t);
+      const tan = tangentOnRoute(r, t);
+      // 線の脇に置くときは、ラベルの矩形が線から離れる分だけ法線方向にずらす
+      const nx = -tan.y;
+      const ny = tan.x;
+      const d = Math.abs(nx) * (size.width / 2) + Math.abs(ny) * (size.height / 2) + 4;
+      for (const p of [on, { x: on.x + nx * d, y: on.y + ny * d }, { x: on.x - nx * d, y: on.y - ny * d }]) {
+        // 線の上に置く案は自分の線を隠すが、ほかと重ならなければ最優先（見慣れた位置）
+        const n = cost(p, best.n);
+        if (n < best.n) best = { p, n };
+        if (n === 0) break search;
+      }
+    }
+    r.label = best.p;
+    placed.push({ p: best.p, size });
+  }
+  return routes;
 }
 
 /** 文字幅を概算し（charUnits）、maxUnits に収まるよう maxLines 行まで折り返す。収まらなければ末尾を「…」にする */

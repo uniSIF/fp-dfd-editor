@@ -55,11 +55,12 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
   const [nodes, setNodes] = useState<DfdRfNode[]>([]);
   useEffect(() => setNodes(toRfNodes(view, selectedNodeIds)), [view, selectedNodeIds]);
 
-  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId), [dfdEdges, selectedEdgeId]);
   const swId = softwareIdOfFeature(doc, featureId);
   const softwareName = swId ? doc.softwares[swId]?.name ?? '' : '';
   // ドラッグ中のローカル位置から境界を計算し直す（FR-DF-19）
   const displayNodes = useMemo(() => withBoundary(nodes, softwareName), [nodes, softwareName]);
+  // データフローの経路とラベルの位置も、ドラッグ中のローカル位置と境界から求める
+  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId, displayNodes), [dfdEdges, selectedEdgeId, displayNodes]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<DfdRfNode>[]) => {

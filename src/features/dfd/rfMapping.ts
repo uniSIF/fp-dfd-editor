@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import { computeBoundary, edgeBias, nodeSize } from '../../domain/dfdGeometry';
+import { computeBoundary, nodeSize, routeDataflows, type Box } from '../../domain/dfdGeometry';
 import type { DfdEdge, Id } from '../../domain/types';
 import type { DfdNodeView } from '../../store/selectors';
 import { tokens } from '../app/theme';
@@ -24,13 +24,28 @@ export function toRfNodes(view: DfdNodeView[], selectedNodeIds: Id[]): DfdRfNode
   });
 }
 
-export function toRfEdges(edges: DfdEdge[], selectedEdgeId: Id | null): DataflowEdgeType[] {
+/**
+ * ストアのデータフローを React Flow のエッジにする。経路とラベルの位置は、渡されたノードの現在位置（ドラッグ中を含む）から
+ * すべてのデータフローをまとめて求める（ラベルがほかの線・ラベルを避けるため。design.md 9.2）。境界ノード（withBoundary）を含めて渡すと、境界の線も避ける。
+ */
+export function toRfEdges(edges: DfdEdge[], selectedEdgeId: Id | null, nodes: DfdRfNode[]): DataflowEdgeType[] {
+  const boxes = new Map<string, Box>();
+  let boundary: { x: number; y: number; width: number; height: number } | null = null;
+  for (const n of nodes) {
+    if (n.type === 'boundary') {
+      boundary = { x: n.position.x, y: n.position.y, width: n.width ?? 0, height: n.height ?? 0 };
+      continue;
+    }
+    const round = n.data.refType === 'transactionFunction' || n.data.refType === 'nonCountedProcess';
+    boxes.set(n.id, { x: n.position.x, y: n.position.y, width: n.measured?.width ?? n.width ?? 0, height: n.measured?.height ?? n.height ?? 0, round });
+  }
+  const routes = routeDataflows(boxes, edges, boundary);
   return edges.map((e) => ({
     id: e.id,
     source: e.sourceNodeId,
     target: e.targetNodeId,
     type: 'dataflow',
-    data: { label: e.label, bias: edgeBias(edges, e.id) },
+    data: { label: e.label, route: routes.get(e.id) },
     selected: e.id === selectedEdgeId,
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: e.id === selectedEdgeId ? tokens.primary : tokens.borderStrong },
   }));
