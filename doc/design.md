@@ -903,6 +903,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-17、FR-SVG-06 | `domain/legend.ts`（`buildDfdLegend`、画面と SVG で共用）、`features/dfd/DfdLegend.tsx`、9.2（`renderLegend`） |
 | FR-DF-16 | 6.2（メモアイコンと Tooltip）、4.3（`hasDescription`） |
 | FR-ID-01 | 3（displayNo、seq）、`domain/ids.ts` |
+| FR-IO-09 | `domain/agentPrompt.ts`（指示を共通の部品から組み立てる。`FP_BOOST_INSTRUCTIONS`、`AGENTS`、`buildAgentInstructions(notes, agent)`・`buildAgentRequest(…, agent)`）、`AgentExportDialog.tsx`（「使うエージェント」の切り替え）、`doc/copilot-agent.md`（2 つ目の指示ブロック。単体テストで一致を確認） |
 | FR-ID-02〜03 | 5.3 |
 | FR-ID-04 | 6.4、10（duplicateName） |
 | FR-ID-05 | 7.2（FunctionLedger）、4.3（selectLedger） |

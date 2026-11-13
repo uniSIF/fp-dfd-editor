@@ -846,6 +846,15 @@ test('複数の機能を参考に書き出し、新しい分類と複数の新�
   const box = (await dialog.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1);
 
+  // FP の拡充エージェントに切り替えると、指示と既定の依頼文が変わる（FR-IO-09）
+  await dialog.getByRole('button', { name: 'FP の拡充' }).click();
+  await expect(dialog.getByRole('button', { name: 'FP の拡充' })).toHaveAttribute('aria-pressed', 'true');
+  await shot(page, '32-agent-fp-boost');
+  await dialog.getByRole('button', { name: 'エージェント用の指示をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 数えてはいけないもの（過剰計上）');
+  await dialog.getByLabel('エージェントへの依頼').fill('');
+  await dialog.getByRole('button', { name: '依頼文と JSON をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('依頼: 書き出した機能の DFD を見て、過剰計上にならない範囲でファンクション数を増やす案を考えてください。');
   // 名称で絞り込む（分類名も対象、空白区切りはすべての語を含むもの）。一括操作は表示中の機能だけに効く
   const items = dialog.getByRole('list', { name: '書き出す機能' }).getByRole('listitem');
   await dialog.getByLabel('名称で絞り込み').fill('顧客 登録');

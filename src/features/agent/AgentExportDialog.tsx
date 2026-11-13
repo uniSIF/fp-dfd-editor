@@ -9,9 +9,11 @@ import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import InputBase from '@mui/material/InputBase';
 import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useMemo, useState, type ReactNode } from 'react';
-import { AGENT_INSTRUCTIONS_LIMIT, buildAgentInstructions, buildAgentRequest } from '../../domain/agentPrompt';
+import { AGENT_INSTRUCTIONS_LIMIT, AGENTS, buildAgentInstructions, buildAgentRequest, type AgentKind } from '../../domain/agentPrompt';
 import { safeFileName } from '../../domain/csvExport';
 import { buildExchange } from '../../domain/exchange';
 import { featuresInOrder, getFeaturePath } from '../../domain/queries';
@@ -25,6 +27,7 @@ import { tokens } from '../app/theme';
  * 機能（1 つ以上）の DFD を AI エージェント（Copilot）が読める JSON で書き出す（FR-IO-01、FR-IO-04）。
  * 依頼文と JSON をまとめてコピーでき、エージェントに設定する指示（FR-IO-03）もここからコピーできる。
  * 機能が多くても選びやすいよう、全画面で開き、名称で絞り込める（FR-IO-08）。
+ * 依頼するエージェント（DFD の作成・見直し / FP の拡充）を選べる（FR-IO-09）。
  */
 export function AgentExportDialog({ softwareId, featureId, onClose }: { softwareId: Id; featureId: Id | null; onClose: () => void }) {
   const doc = useStore((s) => s.doc);
@@ -55,12 +58,13 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
     }
     return next;
   });
+  const [agent, setAgent] = useState<AgentKind>('dfd');
   const [request, setRequest] = useState('');
   const [withInstructions, setWithInstructions] = useState(false);
   // プロジェクト固有の補足情報（FR-IO-07）。入力中はローカルに持ち、フォーカスが外れたとき・コピー時に保存する
   const [notes, setNotes] = useState(() => doc.softwares[softwareId]?.agentNotes ?? '');
   const saveNotes = () => useStore.getState().updateAgentNotes(softwareId, notes);
-  const instructions = buildAgentInstructions(notes);
+  const instructions = buildAgentInstructions(notes, agent);
   const sw = doc.softwares[softwareId];
   if (!sw) return null;
   const s = useStore.getState();
@@ -127,10 +131,20 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
         </Box>
         <Box sx={{ width: { md: 520 }, flexShrink: 0, overflow: { md: 'auto' }, display: 'flex', flexDirection: 'column', gap: 3, pr: { md: 1 } }}>
           <Box>
+            <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, mb: '2px' }}>使うエージェント</Typography>
+            <ToggleButtonGroup
+              exclusive size="small" value={agent} onChange={(_, v: AgentKind | null) => v && setAgent(v)} aria-label="使うエージェント"
+              sx={{ '& .MuiToggleButton-root': { px: 3, fontSize: 13, textTransform: 'none' } }}
+            >
+              {(Object.keys(AGENTS) as AgentKind[]).map((k) => <ToggleButton key={k} value={k}>{AGENTS[k].label}</ToggleButton>)}
+            </ToggleButtonGroup>
+            <Typography sx={{ fontSize: 12, color: tokens.textSecondary, mt: 1 }}>{AGENTS[agent].summary}</Typography>
+          </Box>
+          <Box>
             <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, mb: '2px' }}>エージェントへの依頼（任意）</Typography>
             <TextField
               fullWidth multiline minRows={2} maxRows={6} value={request} onChange={(e) => setRequest(e.target.value)}
-              placeholder="例: 「顧客登録」「顧客検索」を参考に、「取引先登録」「取引先検索」の機能を顧客管理 / 取引先情報に作ってください"
+              placeholder={`${AGENTS[agent].placeholder}\n空欄なら「${AGENTS[agent].defaultRequest}」と依頼します`}
               slotProps={{ htmlInput: { 'aria-label': 'エージェントへの依頼' } }}
             />
             <FormControlLabel
@@ -139,7 +153,7 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
             />
           </Box>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Button variant="contained" disabled={!json} onClick={() => { saveNotes(); void copy(buildAgentRequest(json, request, withInstructions, notes), '依頼文と JSON '); }}>依頼文と JSON をコピー</Button>
+            <Button variant="contained" disabled={!json} onClick={() => { saveNotes(); void copy(buildAgentRequest(json, request, withInstructions, notes, agent), '依頼文と JSON '); }}>依頼文と JSON をコピー</Button>
             <Button variant="outlined" color="inherit" disabled={!json} sx={{ borderColor: tokens.borderStrong }} onClick={() => copy(json, 'JSON ')}>JSON だけコピー</Button>
             <Button
               variant="outlined" color="inherit" disabled={!json} sx={{ borderColor: tokens.borderStrong }}
@@ -152,6 +166,7 @@ export function AgentExportDialog({ softwareId, featureId, onClose }: { software
             <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>エージェントの設定</Typography>
             <Typography sx={{ fontSize: 12, color: tokens.textSecondary, mb: 2 }}>
               Copilot Studio やエージェントビルダーでエージェントを作るときは、この指示を「指示」欄に貼ります。設定しておけば、毎回は「依頼文と JSON」だけを渡せば済みます。
+              エージェントの種類ごとに別のエージェントを作ってください（いまは「{AGENTS[agent].label}」の指示をコピーします）。
             </Typography>
             <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, mb: '2px' }}>プロジェクト固有の補足情報（任意）</Typography>
             <TextField

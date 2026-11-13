@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createAppStore, undo } from '../store';
-import { AGENT_INSTRUCTIONS, buildAgentInstructions, buildAgentRequest } from './agentPrompt';
+import { AGENT_INSTRUCTIONS, AGENTS, buildAgentInstructions, buildAgentRequest, FP_BOOST_INSTRUCTIONS } from './agentPrompt';
 import { parseDocumentJson } from './migrations';
 import { buildExchange, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
 import { sampleDocument } from './sampleDocument';
@@ -359,6 +359,21 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(req.startsWith('# 役割')).toBe(true);
     expect(req).toContain('```json\n{"a":1}\n```');
     expect(buildAgentRequest('{}', '一括登録を追加', false)).toContain('依頼: 一括登録を追加');
+  });
+
+  it('FP 拡充エージェントの指示もドキュメントと同じ文面で上限に収まり、共通のルールを含む（FR-IO-09）', () => {
+    const md = readFileSync('doc/copilot-agent.md', 'utf-8');
+    expect(md).toContain(FP_BOOST_INSTRUCTIONS.trimEnd());
+    expect(FP_BOOST_INSTRUCTIONS.length).toBeLessThan(8000);
+    for (const heading of ['# 受け取る JSON の読み方', '# 種別の判定基準', '# 複雑度の判定基準', '# key のルール', '# 数えてはいけないもの（過剰計上）', '# 返答の形式']) {
+      expect(FP_BOOST_INSTRUCTIONS).toContain(heading);
+    }
+    expect(FP_BOOST_INSTRUCTIONS).toContain('受け取った JSON と同じ形');
+    expect(buildAgentInstructions('', 'fpBoost')).toBe(FP_BOOST_INSTRUCTIONS);
+    expect(buildAgentInstructions('- 帳票は EO', 'fpBoost')).toMatch(/^# 役割\nあなたは、FP 法（IFPUG ファンクションポイント法）の計測に詳しい[\s\S]*- 帳票は EO\n$/);
+    const req = buildAgentRequest('{}', '', true, '', 'fpBoost');
+    expect(req.startsWith(FP_BOOST_INSTRUCTIONS)).toBe(true);
+    expect(req).toContain(`依頼: ${AGENTS.fpBoost.defaultRequest}`);
   });
 
   it('プロジェクト固有の補足情報を、指示の末尾と書き出す JSON に入れ、保存ファイルにも残す（FR-IO-07）', () => {
