@@ -1215,11 +1215,12 @@ test('外部と内部の境界を四角で囲み、ノードの移動に追従�
   await page.waitForTimeout(600);
   await page.mouse.click(free!.x, free!.y);
   await expect(page.getByRole('button', { name: '機能のプロパティ' })).toHaveCount(0);
-  // ノードを右へドラッグすると境界も広がる
-  const n4 = (await page.locator('.react-flow__node[data-id="n4"]').boundingBox())!;
-  await page.mouse.move(n4.x + n4.width / 2, n4.y + n4.height / 2);
+  // 一番下の内部の要素を下へドラッグすると境界も広がる
+  const lowest = (await Promise.all(['n2', 'n3', 'n4', 'n5', 'n6'].map(async (id) => (await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox())!)))
+    .sort((a, b) => b.y + b.height - (a.y + a.height))[0];
+  await page.mouse.move(lowest.x + lowest.width / 2, lowest.y + lowest.height / 2);
   await page.mouse.down();
-  await page.mouse.move(n4.x + n4.width / 2, n4.y + n4.height / 2 + 120, { steps: 8 });
+  await page.mouse.move(lowest.x + lowest.width / 2, lowest.y + lowest.height / 2 + 120, { steps: 8 });
   await page.mouse.up();
   const bb2 = (await boundary.boundingBox())!;
   expect(bb2.height).toBeGreaterThan(bb.height + 60);

@@ -3,9 +3,11 @@ import type { DfdNode } from './types';
 import { layoutDfd } from './autoLayout';
 import { buildCsv, buildLedgerCsv, escapeCsv } from './csvExport';
 import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
-import { clipToBoundary, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, wrapLabel, type Box } from './dfdGeometry';
+import { clipToBoundary, countCrossings, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, segmentsCross, wrapLabel, type Box, type EdgeRoute } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
+import { refName } from './queries';
 import { sampleDocument } from './sampleDocument';
+import { createAppStore } from '../store';
 import { buildAllDfdSvgs, buildDfdIndexTsv, buildDfdSvg } from './svgExport';
 import { findDuplicateName, validateSoftware } from './validation';
 
@@ -111,6 +113,13 @@ describe('svgExport（FR-SVG）', () => {
 });
 
 describe('dfdGeometry', () => {
+  it('線分の交差は、端点以外の 1 点で交わるときだけ数える', () => {
+    const P = (x: number, y: number) => ({ x, y });
+    expect(segmentsCross(P(0, 0), P(10, 10), P(0, 10), P(10, 0))).toBe(true);
+    expect(segmentsCross(P(0, 0), P(10, 0), P(0, 5), P(10, 5))).toBe(false); // 平行
+    expect(segmentsCross(P(0, 0), P(10, 0), P(10, 0), P(20, 5))).toBe(false); // 端点を共有
+  });
+
   it('円と矩形の境界でクリップする', () => {
     const circle = nodeBox('transactionFunction', 0, 0); // 中心 (44,44)
     expect(clipToBoundary(circle, { x: 200, y: 44 })).toEqual({ x: 88, y: 44 });
@@ -153,6 +162,22 @@ describe('dfdGeometry', () => {
     expect(Math.hypot(r.label.x - c.x, r.label.y - c.y)).toBeGreaterThan(mid.width / 2);
     // 端点は両端の図形の境界上（矢印が図形に隠れない）
     expect(r.start.x).toBeCloseTo(a.x + a.width, 0);
+  });
+
+  it('短い線では、ラベルで矢じりや線が隠れないよう線の脇に置く', () => {
+    const label = '受注明細の確認結果';
+    const size = edgeLabelSize(label);
+    // 線の長さがラベルの幅とほぼ同じ
+    const a = nodeBox('externalEntity', 0, 0);
+    const b = nodeBox('externalEntity', 140 + size.width + 10, 0);
+    const boxes = new Map([['a', a], ['b', b]]);
+    const r = routeDataflows(boxes, [{ id: 'e', sourceNodeId: 'a', targetNodeId: 'b', label }]).get('e')!;
+    // ラベルの矩形が線（y = 30）に掛からない
+    expect(Math.abs(r.label.y - 30)).toBeGreaterThanOrEqual(size.height / 2);
+    // 長い線なら、これまでどおり線の上に置く
+    const far = nodeBox('externalEntity', 140 + size.width + 120, 0);
+    const r2 = routeDataflows(new Map([['a', a], ['b', far]]), [{ id: 'e', sourceNodeId: 'a', targetNodeId: 'b', label }]).get('e')!;
+    expect(r2.label.y).toBeCloseTo(30, 0);
   });
 
   it('ラベルが両端のノードに重なる短い直線は、曲げてラベルを外に出す', () => {
@@ -334,6 +359,52 @@ describe('autoLayout（FR-DF-12、FR-DF-19）', () => {
       }
     }
     expect(covered).toEqual([]);
+  });
+
+  // 受注管理の DFD（外部エンティティ 3、プロセス 6、ILF 3、EIF 1）
+  const orderDfd = () => {
+    const N = (id: string, refType: DfdNode['refType']): DfdNode => ({ id, refType, refId: id, x: 0, y: 0 });
+    const E = (s: string, t: string, label: string) => ({ id: `${s}>${t}`, sourceNodeId: s, targetNodeId: t, label });
+    const nodes = [
+      N('cust', 'externalEntity'), N('staff', 'externalEntity'), N('wms', 'externalEntity'),
+      N('reg', 'transactionFunction'), N('upd', 'transactionFunction'), N('del', 'transactionFunction'), N('inq', 'transactionFunction'), N('ship', 'transactionFunction'), N('rep', 'transactionFunction'),
+      N('order', 'dataFunction'), N('custm', 'dataFunction'), N('item', 'dataFunction'), N('stock', 'dataFunction'),
+    ];
+    const edges = [
+      E('cust', 'reg', '注文内容'), E('reg', 'order', '受注データ'), E('custm', 'reg', '顧客情報'), E('item', 'reg', '商品情報'), E('reg', 'cust', '受付結果'),
+      E('staff', 'upd', '変更内容'), E('upd', 'order', '受注データ'), E('staff', 'del', '取消指示'), E('del', 'order', '取消'),
+      E('staff', 'inq', '検索条件'), E('order', 'inq', '受注一覧'), E('inq', 'staff', '検索結果'),
+      E('staff', 'ship', '出荷指示'), E('order', 'ship', '受注'), E('stock', 'ship', '在庫'), E('ship', 'wms', '出荷データ'),
+      E('staff', 'rep', '集計条件'), E('order', 'rep', '受注'), E('rep', 'staff', '月次集計表'),
+    ];
+    const kind = (n: DfdNode) => (n.id === 'stock' ? 'EIF' : 'ILF') as 'EIF' | 'ILF';
+    const pos = new Map(layoutDfd(nodes, edges, kind).map((p) => [p.nodeId, p]));
+    const boxes = new Map<string, Box>(nodes.map((n) => [n.id, nodeBox(n.refType, pos.get(n.id)!.x, pos.get(n.id)!.y)]));
+    return { nodes, edges, boxes };
+  };
+
+  it('データファンクションから読むプロセスも、外部エンティティ → プロセス → データファンクションの順に左から並べる', () => {
+    const { nodes, boxes } = orderDfd();
+    const xs = (t: DfdNode['refType']) => nodes.filter((n) => n.refType === t && n.id !== 'stock' && n.id !== 'wms').map((n) => boxes.get(n.id)!.x);
+    expect(Math.max(...xs('externalEntity'))).toBeLessThan(Math.min(...xs('transactionFunction')));
+    expect(Math.max(...xs('transactionFunction'))).toBeLessThan(Math.min(...xs('dataFunction')));
+  });
+
+  it('自動整列と線の引き直しで、データフローの交差を減らす', () => {
+    const { edges, boxes } = orderDfd();
+    const routes = routeDataflows(boxes, edges);
+    // 1 本ずつ引いた（交差を考えない）経路より少ない。並べ替え前の dagre の並びでは 7 か所交差していた
+    const independent = new Map<string, EdgeRoute>(edges.map((e) => [e.id, routeEdge(boxes.get(e.sourceNodeId)!, boxes.get(e.targetNodeId)!, [...boxes.values()], edgeLabelSize(e.label), edgeBias(edges, e.id))]));
+    expect(countCrossings(routes, edges)).toBeLessThan(countCrossings(independent, edges));
+    expect(countCrossings(routes, edges)).toBeLessThanOrEqual(3);
+
+    // サンプルの顧客登録は交差なく並ぶ
+    const store = createAppStore(sampleDocument());
+    store.getState().applyLayout('fReg');
+    const doc = store.getState().doc;
+    const dfd = doc.features.fReg.dfd;
+    const sampleBoxes = new Map<string, Box>(dfd.nodes.map((n) => [n.id, nodeBox(n.refType, n.x, n.y, refName(doc, n.refType, n.refId))]));
+    expect(countCrossings(routeDataflows(sampleBoxes, dfd.edges), dfd.edges)).toBe(0);
   });
 
   it('データフローのラベルが長いほど、ノードの間と境界の外の間隔を広げる', () => {

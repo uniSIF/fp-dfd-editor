@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calcSoftwareTotals } from './calc';
+import { layoutDfd } from './autoLayout';
 import { buildCsv } from './csvExport';
 import { nodeBox, routeDataflows } from './dfdGeometry';
 import { createSoftware, emptyDocument } from './emptyDocument';
@@ -43,7 +44,7 @@ describe('性能（NFR-02、NFR-03）', () => {
     expect(ms).toBeLessThan(1000);
   });
 
-  it('100 ノード・150 データフローの DFD で、すべての経路（ノードを避ける曲線）とラベルの位置を 300ms 以内に求める', () => {
+  it('100 ノード・150 データフローの DFD で、すべての経路（ノードを避ける曲線）とラベルの位置を 500ms 以内に求める', () => {
     // 10 × 10 の格子に並べ、離れたノードどうしも結んで、途中のノードを避ける必要がある線を多く作る
     const boxes = new Map(Array.from({ length: 100 }, (_, i) => [`${i}`, nodeBox(i % 3 ? 'transactionFunction' : 'dataFunction', (i % 10) * 240, Math.floor(i / 10) * 160, `要素${i}`)]));
     const edges = Array.from({ length: 150 }, (_, i) => ({ id: `e${i}`, sourceNodeId: `${i % 100}`, targetNodeId: `${(i * 37 + 11) % 100}`, label: i % 2 ? '検索条件と検索結果の一覧' : '' }));
@@ -51,7 +52,23 @@ describe('性能（NFR-02、NFR-03）', () => {
     const routes = routeDataflows(boxes, edges);
     const ms = performance.now() - t0;
     expect(routes.size).toBe(150);
-    // 実測は温まった状態で約 80〜120ms（20 ノード・30 データフローなら約 2ms）。初回の JIT と CI の負荷を見込む
-    expect(ms).toBeLessThan(300);
+    // 実測は温まった状態で約 180ms（20 ノード・30 データフローなら約 7ms）。初回の JIT と CI の負荷を見込む
+    expect(ms).toBeLessThan(500);
+  });
+
+  it('100 ノード・150 データフローの DFD を 1 秒以内に自動整列する（交差を減らす並べ替えを含む）', () => {
+    const nodes: DfdNode[] = Array.from({ length: 100 }, (_, i) => ({
+      id: `n${i}`, refType: i % 10 === 0 ? 'externalEntity' : i % 3 === 0 ? 'dataFunction' : 'transactionFunction', refId: `n${i}`, x: 0, y: 0,
+    }));
+    const tf = nodes.filter((n) => n.refType === 'transactionFunction');
+    const other = nodes.filter((n) => n.refType !== 'transactionFunction');
+    const edges = Array.from({ length: 150 }, (_, i) => {
+      const [a, b] = [tf[(i * 7) % tf.length].id, other[(i * 5 + 3) % other.length].id];
+      return { id: `e${i}`, sourceNodeId: i % 2 ? a : b, targetNodeId: i % 2 ? b : a, label: '検索条件' };
+    });
+    const t0 = performance.now();
+    expect(layoutDfd(nodes, edges)).toHaveLength(100);
+    // 実測は約 170ms
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
 });
