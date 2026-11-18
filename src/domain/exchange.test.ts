@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createAppStore, undo } from '../store';
 import { AGENT_INSTRUCTIONS, AGENTS, buildAgentInstructions, buildAgentRequest, FP_BOOST_INSTRUCTIONS } from './agentPrompt';
 import { parseDocumentJson } from './migrations';
-import { buildExchange, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
+import { buildExchange, featurePlanHasChanges, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
 import { sampleDocument } from './sampleDocument';
 
 const parse = (text: string): ImportData => {
@@ -132,6 +132,57 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(after.features.fReg.dfd.edges.find((e) => e.label === '顧客登録情報')).toBeDefined();
     // 出力に含まれない機能は変わらない
     expect(after.features.fItem).toEqual(doc.features.fItem);
+  });
+
+  it('データファンクションの所有機能の変更だけでも差分にして取り込み、Undo で戻る', () => {
+    const doc = sampleDocument();
+    // 両方の機能を書き出し、商品マスタ（fItem 所有）を顧客登録（fReg）の所有に変える
+    const ex = buildExchange(doc, ['fReg', 'fItem']);
+    delete ex.features[0].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner;
+    ex.features[1].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner = 'fReg';
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(plan.errors).toEqual([]);
+    expect(plan.ownerChanges).toEqual([expect.objectContaining({ key: 'DF-002', fromFeatureId: 'fItem', toFeatureId: 'fReg', text: '所有機能「商品登録」→「顧客登録」' })]);
+    expect(planHasChanges(plan)).toBe(true);
+    // 所有を失う機能・得る機能のどちらも「変更なし」にしない
+    expect(plan.features.map((f) => featurePlanHasChanges(f, plan))).toEqual([true, true]);
+    // 所有機能の removeMissing で、所有を移した DF を削除しない
+    expect(plan.features.flatMap((f) => f.removals)).toEqual([]);
+
+    const store = createAppStore(doc);
+    expect(store.getState().applyImportPlan('sw1', plan, { layout: false }).ok).toBe(true);
+    expect(store.getState().doc.dataFunctions.df2.ownerFeatureId).toBe('fReg');
+    undo(store);
+    expect(store.getState().doc.dataFunctions.df2.ownerFeatureId).toBe('fItem');
+
+    // 参照している機能だけを書き出し、owner を消しても所有の変更になる
+    const one = buildExchange(doc, ['fReg']);
+    delete one.features[0].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner;
+    expect(planImport(doc, 'sw1', parse(JSON.stringify(one)), { removeMissing: false }).ownerChanges).toEqual([expect.objectContaining({ toFeatureId: 'fReg' })]);
+
+    // 元の所有機能の出力から外しても、所有を移す DF は削除しない（DFD から外すだけ）
+    const moved = buildExchange(doc, ['fReg', 'fItem']);
+    delete moved.features[0].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner;
+    moved.features[1].dfd.dataFunctions = moved.features[1].dfd.dataFunctions.filter((d) => d.key !== 'DF-002');
+    moved.features[1].dfd.dataFlows = moved.features[1].dfd.dataFlows.filter((x) => x.from !== 'DF-002' && x.to !== 'DF-002');
+    const movedPlan = planImport(doc, 'sw1', parse(JSON.stringify(moved)), { removeMissing: true });
+    expect(movedPlan.ownerChanges).toHaveLength(1);
+    expect(movedPlan.features[1].removals).toEqual([expect.objectContaining({ key: 'DF-002', mode: 'unplace' })]);
+  });
+
+  it('所有機能が機能によって食い違うときは変えずに警告し、所有機能なしの DF はそのまま返せば変更なし', () => {
+    const doc = sampleDocument();
+    const ex = buildExchange(doc, ['fReg', 'fItem']);
+    delete ex.features[0].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner; // 顧客登録が所有
+    ex.features[1].dfd.dataFunctions.find((d) => d.key === 'DF-002')!.owner = ''; // 所有機能なし
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(plan.ownerChanges).toEqual([]);
+    expect(plan.warnings.some((w) => w.includes('DF-002') && w.includes('所有機能'))).toBe(true);
+
+    const unowned = { ...doc, dataFunctions: { ...doc.dataFunctions, df2: { ...doc.dataFunctions.df2, ownerFeatureId: null } } };
+    const round = buildExchange(unowned, ['fReg', 'fItem']);
+    expect(round.features[0].dfd.dataFunctions.find((d) => d.key === 'DF-002')?.owner).toBe('');
+    expect(planHasChanges(planImport(unowned, 'sw1', parse(JSON.stringify(round)), { removeMissing: true }))).toBe(false);
   });
 
   it('接続ルール違反・未知の key・重複・機能をまたぐ TF の key・分類のない新しい機能はエラーにする', () => {

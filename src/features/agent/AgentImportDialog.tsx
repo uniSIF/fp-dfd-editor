@@ -103,7 +103,7 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
       return;
     }
     // 変更のあった最初の機能を開く
-    const first = plan.features.findIndex(featurePlanHasChanges);
+    const first = plan.features.findIndex((f) => featurePlanHasChanges(f, plan));
     if (first >= 0) s.selectFeature(r.featureIds[first]);
     s.setActiveTab('dfd');
     s.notify(`Copilot の出力を取り込みました（機能 ${plan.features.length} 件${newFeatures ? `・うち新しい機能 ${newFeatures} 件` : ''}・新しい要素 ${r.created} 件）`, 'success');
@@ -168,6 +168,7 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
                 <Row key={`cat:${c.category1}/${c.category2}`} tag="追加" color={tokens.primary} label={c.newCategory1 ? '大分類・中分類' : '中分類'} text={`${c.category1} / ${c.category2}`} />
               ))}
               {plan.updates.map((u) => <Row key={`u:${u.key}`} tag="変更" color={tokens.warning} label={`${TYPE_LABELS[u.refType]} ${u.key}`} text={u.changes.join('、')} />)}
+              {plan.ownerChanges.map((o) => <Row key={`o:${o.key}`} tag="変更" color={tokens.warning} label={`データファンクション ${o.key}`} text={`${o.name}: ${o.text}`} />)}
               {plan.features.map((f) => <FeatureRows key={f.key} plan={plan} f={f} />)}
             </Box>
             {plan.warnings.length > 0 && (
@@ -199,7 +200,7 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
 
 /** 機能ごとの変更（見出し行と、その下の要素・データフロー） */
 function FeatureRows({ plan, f }: { plan: ImportPlan; f: FeaturePlan }) {
-  const changed = featurePlanHasChanges(f);
+  const changed = featurePlanHasChanges(f, plan);
   const creates = plan.creates.filter((c) => f.createKeys.includes(c.key));
   return (
     <>

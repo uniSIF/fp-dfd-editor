@@ -757,6 +757,10 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
                   : d.externalEntities[u.refId];
           if (target) Object.assign(target, u.patch);
         }
+        for (const o of plan.ownerChanges) {
+          const df = d.dataFunctions[o.refId];
+          if (df) df.ownerFeatureId = o.toFeatureKey ? featureOf.get(o.toFeatureKey) ?? null : o.toFeatureId;
+        }
         // 5. 機能ごとに、要素を DFD に置いてデータフローでつなぐ
         for (const fp of plan.features) {
           const fid = featureOf.get(fp.key)!;

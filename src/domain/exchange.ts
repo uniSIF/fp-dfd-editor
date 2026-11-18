@@ -65,7 +65,7 @@ const RULES = {
   devTypeAndVendor:
     '機能の devType は「新規」か「改修」。vendor は外注業者の名前（catalog.vendors のいずれか）で、外注しないなら空文字。依頼で指示がなければ、新しい機能は流用元・参考にした機能に合わせ、既存の機能は変えない。vendor を書かなければ変更しない',
   owner:
-    'データファンクションの owner は FP を計上する機能（所有機能）の key。新しいデータファンクションで省略すると、最初に書いた機能が所有する。既存のデータファンクションの所有機能は変わらない',
+    'データファンクションの owner は FP を計上する機能（所有機能）の key。その機能が所有するなら省略する。新しいデータファンクションで省略すると、最初に書いた機能が所有する。既存のデータファンクションの所有機能を変えるときは、そのデータファンクションを書いたすべての機能で owner を新しい所有機能の key にする（新しい所有機能の dfd では省略してよい）。所有機能を変えないなら owner は受け取ったまま返す',
   dataFlows:
     'dataFlows の from / to は同じ機能の dfd 内の要素の key。外部エンティティ同士、データファンクション同士、外部エンティティとデータファンクションは直接つなげない（必ずプロセスを介する）。label には流れるデータの名称を書く',
   description:
@@ -209,7 +209,8 @@ const dfdSchema = z.object({
   dataFunctions: z.array(element.extend({
     kind: z.preprocess(upper, z.enum(['ILF', 'EIF'], { message: 'データファンクションの kind は ILF か EIF です' })),
     complexity,
-    owner: z.preprocess((v) => (v === null || v === undefined || v === '' ? undefined : String(v)), z.string().optional()),
+    // 空文字は「所有機能なし」（書き出しで所有機能が未設定の DF）。省略（undefined）とは区別する
+    owner: z.preprocess((v) => (v === null || v === undefined ? undefined : String(v).trim()), z.string().optional()),
   })).default([]),
   transactionFunctions: z.array(element.extend({ kind: z.preprocess(upper, z.enum(['EI', 'EO', 'EQ'], { message: 'トランザクションの kind は EI・EO・EQ のいずれかです' })), complexity })).default([]),
   nonCountedProcesses: z.array(element).default([]),
@@ -339,6 +340,11 @@ export interface ImportPlan {
   creates: { refType: NodeRefType; key: string; name: string; kind?: DataFunctionKind | TransactionKind; complexity?: Complexity; description: string; featureKey: string | null; ownerFeatureId?: Id }[];
   /** 既存の要素の変更 */
   updates: { refType: NodeRefType; refId: Id; key: string; name: string; changes: string[]; patch: Patch }[];
+  /**
+   * 既存のデータファンクションの所有機能の変更。新しい所有機能は既存の機能（toFeatureId）か、出力の機能の key（toFeatureKey。新しい機能を含む）。
+   * どちらも null なら所有機能なし
+   */
+  ownerChanges: { refId: Id; key: string; name: string; fromFeatureId: Id | null; toFeatureId: Id | null; toFeatureKey: string | null; text: string }[];
   features: FeaturePlan[];
 }
 
@@ -355,7 +361,7 @@ const typeLabel = (t: NodeRefType) => LIST_TYPES.find((x) => x[1] === t)![2];
  * removeMissing なら、出力に含まれる既存の機能について、出力にない要素・データフローを削除対象にする。
  */
 export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, options: { removeMissing: boolean }): ImportPlan {
-  const plan: ImportPlan = { errors: [], warnings: [], newCategories: [], creates: [], updates: [], features: [] };
+  const plan: ImportPlan = { errors: [], warnings: [], newCategories: [], creates: [], updates: [], ownerChanges: [], features: [] };
   const sw = doc.softwares[softwareId];
   if (!sw) {
     plan.errors.push('取り込み先のソフトウェアが見つかりません。');
@@ -491,6 +497,8 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
   /** 名前で既存の外部エンティティ・DF に対応づけた key（ソフトウェア共通。機能をまたいで同じ key を使うため） */
   const sharedAliases = new Map<string, string>();
   const updatedRefs = new Set<string>();
+  /** 既存の DF について、出力が示す所有機能（今と違うものだけ）。値は出力の機能の key（新しい機能を含む）か、'' = 所有機能なし */
+  const ownerSignals = new Map<Id, { key: string; owners: Set<string>; where: string[] }>();
   data.features.forEach((f, i) => {
     const fp = plan.features[i];
     const existingFeatureId = fp.featureId;
@@ -593,6 +601,31 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         used.add(`${ex.refType}:${ex.refId}`);
         if (!keepUnplaced && !isPlaced(ex.refType, ex.refId)) fp.places.push({ ...ex, key: k, name: refName(doc, ex.refType, ex.refId) });
 
+        // 所有機能。owner を書いていればその機能、省略していれば、書き出しで owner を付けていた（この DFD に置いていた）要素ならこの機能
+        let ownsHere = false;
+        if (ex.refType === 'dataFunction') {
+          const df = doc.dataFunctions[ex.refId];
+          let owner: string | undefined;
+          if (item.owner === '') owner = '';
+          else if (item.owner !== undefined) {
+            if (outputFeatureKeys.has(item.owner)) owner = item.owner;
+            else {
+              // 出力に含めていない既存の機能（内部 ID）
+              const target = doc.features[item.owner];
+              if (target && softwareIdOfFeature(doc, item.owner) === softwareId) owner = `\u0000${item.owner}`;
+              else plan.warnings.push(`${where}: データファンクション「${k} ${df.name}」の owner「${item.owner}」が見つからないため、所有機能は変えません。`);
+            }
+          } else if (existingFeatureId && isPlaced(ex.refType, ex.refId)) owner = fp.key;
+          const ownerId = owner === undefined ? undefined : owner === '' ? null : owner.startsWith('\u0000') ? owner.slice(1) : plan.features.find((x) => x.key === owner)!.featureId;
+          ownsHere = owner === fp.key;
+          if (owner !== undefined && ownerId !== df.ownerFeatureId) {
+            const sig = ownerSignals.get(ex.refId) ?? { key: k, owners: new Set<string>(), where: [] };
+            sig.owners.add(owner);
+            sig.where.push(fp.name);
+            ownerSignals.set(ex.refId, sig);
+          }
+        }
+
         // 変更点（同じ要素を複数の機能に書いた場合は最初のものだけ見る）
         const refKey = `${ex.refType}:${ex.refId}`;
         if (updatedRefs.has(refKey)) continue;
@@ -606,7 +639,7 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         if (item.description !== cur.description && item.description !== '') { patch.description = item.description; changes.push('説明'); }
         if (!changes.length) continue;
         const df = ex.refType === 'dataFunction' ? doc.dataFunctions[ex.refId] : null;
-        if (df && (!existingFeatureId || df.ownerFeatureId !== existingFeatureId)) {
+        if (df && !ownsHere && (!existingFeatureId || df.ownerFeatureId !== existingFeatureId)) {
           const owner = df.ownerFeatureId ? doc.features[df.ownerFeatureId]?.name : '未設定';
           // 所有機能も出力に含まれ、そちらで変更していればそちらで扱う
           if (df.ownerFeatureId && outputFeatureIds.has(df.ownerFeatureId)) { updatedRefs.delete(refKey); continue; }
@@ -682,6 +715,28 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     // 既存の機能は DFD が空のままでもよい（空の機能を含めて書き出し、そのまま返す場合）
     if (!fp.featureId && !fp.elementKeys.length) plan.errors.push(`${where}: dfd に要素がありません。`);
   });
+  // 所有機能の変更。機能によって違う所有機能を示していれば、決められないので変えない
+  for (const [refId, sig] of ownerSignals) {
+    const df = doc.dataFunctions[refId];
+    if (sig.owners.size > 1) {
+      plan.warnings.push(`データファンクション「${sig.key} ${df.name}」の所有機能が、機能によって違います（${sig.where.join('、')}）。所有機能は変えません。変えるには、すべての機能で owner を同じ機能の key にするよう依頼してください。`);
+      continue;
+    }
+    const owner = [...sig.owners][0];
+    const toPlan = owner.startsWith('\u0000') ? null : plan.features.find((x) => x.key === owner) ?? null;
+    const toFeatureId = owner === '' ? null : owner.startsWith('\u0000') ? owner.slice(1) : toPlan!.featureId;
+    const name = (id: Id | null) => (id ? doc.features[id]?.name ?? '' : '未設定');
+    const toName = owner === '' ? '未設定' : toPlan ? toPlan.name : name(toFeatureId);
+    plan.ownerChanges.push({
+      refId, key: sig.key, name: df.name, fromFeatureId: df.ownerFeatureId,
+      toFeatureId: toPlan && !toPlan.featureId ? null : toFeatureId, toFeatureKey: toPlan && !toPlan.featureId ? toPlan.key : null,
+      text: `所有機能「${name(df.ownerFeatureId)}」→「${toName}」`,
+    });
+    // 元の所有機能の出力から外していても、所有を移す DF は削除せず DFD から外すだけにする
+    for (const fp of plan.features) {
+      for (const r of fp.removals) if (r.refType === 'dataFunction' && r.refId === refId && fp.featureId !== toFeatureId) r.mode = 'unplace';
+    }
+  }
   if (!plan.errors.length) warnDuplicateNames(doc, softwareId, plan);
   return plan;
 }
@@ -764,12 +819,13 @@ function currentOf(doc: FpDocument, refType: NodeRefType, refId: Id): { name: st
   }
 }
 
-/** 機能ごとの変更の有無 */
-export function featurePlanHasChanges(f: FeaturePlan): boolean {
-  return !!(!f.featureId || f.featureChanges.length || f.createKeys.length || f.splitKeys.length || f.places.length || f.edgeAdds.length || f.edgeLabelUpdates.length || f.edgeRemovals.length || f.removals.length);
+/** 機能ごとの変更の有無。plan を渡すと、その機能が所有を失う・得るデータファンクションも変更に含める */
+export function featurePlanHasChanges(f: FeaturePlan, plan?: ImportPlan): boolean {
+  const owners = plan?.ownerChanges.some((o) => (f.featureId && (o.fromFeatureId === f.featureId || o.toFeatureId === f.featureId)) || o.toFeatureKey === f.key);
+  return !!(!f.featureId || owners || f.featureChanges.length || f.createKeys.length || f.splitKeys.length || f.places.length || f.edgeAdds.length || f.edgeLabelUpdates.length || f.edgeRemovals.length || f.removals.length);
 }
 
 /** プランに変更があるか */
 export function planHasChanges(p: ImportPlan): boolean {
-  return !!(p.creates.length || p.updates.length || p.newCategories.length || p.features.some(featurePlanHasChanges));
+  return !!(p.creates.length || p.updates.length || p.ownerChanges.length || p.newCategories.length || p.features.some((f) => featurePlanHasChanges(f)));
 }
