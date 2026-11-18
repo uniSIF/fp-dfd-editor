@@ -3,6 +3,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import { useState } from 'react';
+import { EDGE_START_DOT } from '../../domain/dfdGeometry';
 import { FUNCTION_KIND_LABELS } from '../../domain/fpTables';
 import { LEGEND_KINDS, buildDfdLegend } from '../../domain/legend';
 import type { Id } from '../../domain/types';
@@ -79,9 +80,33 @@ export function DfdLegendPanel({ featureId }: { featureId: Id }) {
           {legend.unplacedCount > 0 && (
             <Box sx={{ color: tokens.warning, fontSize: 11, mt: '2px' }}>うち DFD 未配置 {legend.unplacedCount} 件</Box>
           )}
+          {/* データフローの見分け方（始点の丸印と、選択・ホバーしたノードから出る線・入る線の色） */}
+          <Box sx={{ borderTop: `1px solid ${tokens.border}`, mt: 1, pt: 1, color: tokens.textSecondary, fontSize: 11 }} data-testid="dfd-legend-flows">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
+              <FlowSample color={tokens.borderStrong} />
+              <span>データフロー（丸印が始点）</span>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
+              <FlowSample color={tokens.primary} />
+              <span>選択したノードから出る</span>
+              <FlowSample color={tokens.flowIn} />
+              <span>入る</span>
+            </Box>
+          </Box>
         </Box>
       )}
     </Box>
+  );
+}
+
+/** データフローの線の見本（始点の丸印・線・矢じり） */
+function FlowSample({ color }: { color: string }) {
+  return (
+    <svg width="30" height="10" viewBox="0 0 30 10" aria-hidden style={{ flex: 'none' }}>
+      <circle cx="4" cy="5" r={EDGE_START_DOT} fill={color} />
+      <path d="M4 5 L22 5" stroke={color} strokeWidth="1.5" />
+      <path d="M21 1 L29 5 L21 9 z" fill={color} />
+    </svg>
   );
 }
 

@@ -1,4 +1,4 @@
-import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, GEOMETRY, boxCenter, computeBoundary, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeDataflows, wrapLabel, type Box } from './dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, EDGE_START_DOT, GEOMETRY, boxCenter, computeBoundary, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeDataflows, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
 import { safeFileName } from './csvExport';
@@ -148,9 +148,10 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     );
   }
 
-  // エッジ（両端を図形境界でクリップ。途中のノードは曲線で避ける）。ラベルは線の上に重ねる
+  // エッジ（両端を図形境界でクリップ。途中のノードは曲線で避ける）。始点には丸印を付ける。ラベルは線の上に重ねる
   for (const { route } of routes) {
     parts.push(`<path d="${route.path.replace(/-?\d+(\.\d+)?/g, (v) => r(Number(v)))}" fill="none" stroke="${COLORS.borderStrong}" stroke-width="1.5" marker-end="url(#arrow)"/>`);
+    parts.push(`<circle data-edge-dot="true" cx="${r(route.dot.x)}" cy="${r(route.dot.y)}" r="${EDGE_START_DOT}" fill="${COLORS.borderStrong}"/>`);
   }
   for (const { e, route } of routes) {
     const lines = edgeLabelLines(e.label);
@@ -225,7 +226,7 @@ const LEGEND_GAP = 48;
 const ROW = 22;
 
 function legendHeight(l: DfdLegend): number {
-  return 34 + LEGEND_KINDS.length * ROW + 12 + ROW + (l.referenceCount ? 18 : 0) + (l.unplacedCount ? 18 : 0) + 8;
+  return 34 + LEGEND_KINDS.length * ROW + 12 + ROW + (l.referenceCount ? 18 : 0) + (l.unplacedCount ? 18 : 0) + 20 + 8;
 }
 
 /** 種別ごとの計上件数の凡例（FR-DF-17） */
@@ -256,7 +257,14 @@ function renderLegend(l: DfdLegend, x: number, y: number): string {
   }
   if (l.unplacedCount) {
     out.push(text(x + 12, cy + 12, `うち DFD 未配置 ${l.unplacedCount} 件`, small));
+    cy += 18;
   }
+  // データフローの向きの見本（始点の丸印と終点の矢じり）
+  const fy = cy + 10;
+  out.push(`<circle cx="${r(x + 15)}" cy="${r(fy)}" r="${EDGE_START_DOT}" fill="${COLORS.borderStrong}"/>`);
+  out.push(`<line x1="${r(x + 15)}" y1="${r(fy)}" x2="${r(x + 37)}" y2="${r(fy)}" stroke="${COLORS.borderStrong}" stroke-width="1.5"/>`);
+  out.push(`<path d="M ${r(x + 36)} ${r(fy - 4)} L ${r(x + 44)} ${r(fy)} L ${r(x + 36)} ${r(fy + 4)} z" fill="${COLORS.borderStrong}"/>`);
+  out.push(text(x + 52, fy + 4, 'データフロー（丸印が始点、矢じりが終点）', small));
   out.push('</g>');
   return out.join('');
 }

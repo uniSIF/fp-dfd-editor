@@ -77,6 +77,7 @@
 | `--color-primary` | `#2457A5` | 主ボタン、選択、リンク、フォーカスリング | `palette.primary.main` |
 | `--color-primary-hover` | `#1C4684` | | `palette.primary.dark` |
 | `--color-primary-soft` | `#E6EEFA` | 選択行背景、選択ノードの光彩 | `palette.primary.light`（alpha 利用） |
+| `--color-flow-in` | `#B4418E` | 選択・ホバーしたノードに入るデータフロー（出る線は primary）。種別バッジの色と紛れない色 | `tokens.flowIn` |
 | `--color-warning` | `#B4690E` | 警告テキスト、アイコン、ノード枠 | `palette.warning.main` |
 | `--color-warning-soft` | `#FFF3DC` | 警告行・警告チップ背景 | `palette.warning.light` |
 | `--color-error` | `#B3261E` | エラー、破壊的操作のボタン | `palette.error.main` |
@@ -163,7 +164,7 @@ MUI: `spacing: 4`、`shape.borderRadius: 3`、`components.MuiButton.defaultProps
 | Controls | 左下に「＋」「−」「全体表示」「ロック」。React Flow 標準の `Controls` をトークン色で再スタイル |
 | MiniMap | 右下 160×100、角丸 6px、ノードは種別色の塗り |
 | システム境界 | 内部の要素（TF・非計上プロセス・ILF）を囲む角丸 12px の枠。線 2px `--color-primary`、塗りなし。左上に 12px 600 primary で「システム境界: ソフトウェア名」。外部エンティティと EIF は外側。選択・クリックの対象にせず、背面のキャンバスへクリックを通す。ノードのドラッグに追従する |
-| 凡例 | 右上、幅 268px、角丸 6px。見出し「凡例」と折りたたみボタン。種別バッジ・種別名・件数を 5 行、区切り線の下に「合計 N 件」「未調整FP N」。参照配置があれば「参照（他機能所有・計上外） N 件」、未配置があれば warning 色で「うち DFD 未配置 N 件」。折りたたみ時は 1 行で合計と未調整 FP のみ。全体表示は上側に余白を取り、ノードが凡例・パレットに隠れないようにする |
+| 凡例 | 右上、幅 268px、角丸 6px。見出し「凡例」と折りたたみボタン。種別バッジ・種別名・件数を 5 行、区切り線の下に「合計 N 件」「未調整FP N」。参照配置があれば「参照（他機能所有・計上外） N 件」、未配置があれば warning 色で「うち DFD 未配置 N 件」。その下に区切り線を引き、データフローの見本（丸印が始点）と、選択したノードから出る線・入る線の色の見本を 11px secondary で示す。折りたたみ時は 1 行で合計と未調整 FP のみ。全体表示は上側に余白を取り、ノードが凡例・パレットに隠れないようにする |
 | 空状態 | 中央に「ノードがありません」＋「パレットから追加するか、ファンクション表で追加してください」＋ TF 追加ボタン |
 
 ### 4.5 ノード
@@ -186,8 +187,10 @@ MUI: `spacing: 4`、`shape.borderRadius: 3`、`components.MuiButton.defaultProps
 
 ### 4.6 エッジ
 
-- 直線（design.md 9.2 と同じ）。線 `--color-border-strong` 1.5px、終端に塗りつぶし矢印 8px。
-- ホバー: `--color-text`。選択: primary 2px、中点にラベル編集の小さな入力が出る。
+- 直線（design.md 9.2 と同じ）。線 `--color-border-strong` 1.5px、終端に塗りつぶし矢印 8px、始点に線と同じ色の丸印（半径 3px。ノードの縁のすぐ外）。
+- 同じノードの近い位置につながる線の端は、縁に沿って 12px ずつ離す（design.md 9.2）。
+- 選択: primary 2px。ラベルはプロパティパネルで編集する。
+- 強調 [FR-DF-25]: ノードにマウスを載せるか選択すると、そのノードから出る線を primary 2px、入る線を `--color-flow-in`（`#B4418E`）2px にし、ラベルも同じ色にする。つながらない線・ラベル・ノードは不透明度 0.35 に薄くする（切り替えは 0.12 秒）。線にマウスを載せるか選択したときは、その線（primary）と両端のノード以外を薄くする。マウスを載せた要素を選択より優先する。システム境界は薄くしない。ファンクション表のプレビューでは選択だけに反応する。
 - ラベル: 12px、白背景 padding 2px 4px、線の中点に配置。
 - 接続ドラッグ中: 接続可能なノードは輪郭が primary に、不可のノードは変化なし。ドロップで拒否された場合は Snackbar（4.10）。
 

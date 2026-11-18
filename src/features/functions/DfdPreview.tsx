@@ -9,7 +9,8 @@ import { selectDfdNodes } from '../../store/selectors';
 import { tokens } from '../app/theme';
 import { edgeTypes, type DataflowEdgeType } from '../dfd/edges/DataflowEdge';
 import { nodeTypes, type DfdRfNode } from '../dfd/nodes/DfdNodes';
-import { keepMeasured, toRfEdges, toRfNodes, withBoundary } from '../dfd/rfMapping';
+import { dimNodes, keepMeasured, routeRfEdges, toRfEdges, toRfNodes, withBoundary } from '../dfd/rfMapping';
+import { flowEmphasis } from '../../domain/flowEmphasis';
 import { softwareIdOfFeature } from '../../domain/queries';
 import { DfdLegendInline } from '../dfd/DfdLegend';
 
@@ -74,7 +75,11 @@ function PreviewFlow({ featureId, height }: { featureId: Id; height: number }) {
   const [nodes, setNodes] = useState<DfdRfNode[]>([]);
   useEffect(() => setNodes((prev) => keepMeasured(prev, withBoundary(toRfNodes(view, selectedNodeIds), softwareName))), [view, selectedNodeIds, softwareName]);
   const dfdEdges = doc.features[featureId]?.dfd.edges;
-  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId, nodes), [dfdEdges, selectedEdgeId, nodes]);
+  const routes = useMemo(() => routeRfEdges(dfdEdges ?? [], nodes), [dfdEdges, nodes]);
+  // 選択しているノードや線につながる線を強調し、ほかを薄くする（DFD タブと同じ。ホバーでは変えない）
+  const focus = useMemo(() => flowEmphasis(dfdEdges ?? [], selectedNodeIds, selectedEdgeId), [dfdEdges, selectedNodeIds, selectedEdgeId]);
+  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], routes, selectedEdgeId, focus), [dfdEdges, routes, selectedEdgeId, focus]);
+  const shownNodes = useMemo(() => dimNodes(nodes, focus), [nodes, focus]);
   const rf = useReactFlow<DfdRfNode, DataflowEdgeType>();
 
   // 機能・ノード数・高さが変わったら全体が収まるように表示し直す
@@ -94,7 +99,7 @@ function PreviewFlow({ featureId, height }: { featureId: Id; height: number }) {
   return (
     <>
       <ReactFlow<DfdRfNode, DataflowEdgeType>
-        nodes={nodes}
+        nodes={shownNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

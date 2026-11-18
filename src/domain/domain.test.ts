@@ -3,7 +3,8 @@ import type { DfdNode } from './types';
 import { layoutDfd } from './autoLayout';
 import { buildCsv, buildLedgerCsv, escapeCsv } from './csvExport';
 import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
-import { clipToBoundary, countCrossings, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, segmentsCross, wrapLabel, type Box, type EdgeRoute } from './dfdGeometry';
+import { flowEmphasis } from './flowEmphasis';
+import { EDGE_START_DOT, MIN_END_GAP, clipToBoundary, countCrossings, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, segmentsCross, wrapLabel, type Box, type EdgeRoute } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
 import { refName } from './queries';
 import { sampleDocument } from './sampleDocument';
@@ -81,6 +82,7 @@ describe('svgExport（FR-SVG）', () => {
     expect(root.getAttribute('font-family')).toContain('Hiragino Sans');
     expect(dom.getElementsByTagName('ellipse')).toHaveLength(3); // TF 3 件（名称が長いと横長になるので楕円）
     expect(dom.querySelectorAll('path[marker-end]')).toHaveLength(7);
+    expect(dom.querySelectorAll('circle[data-edge-dot]')).toHaveLength(7); // 始点の丸印
     expect(svg).toContain('所有: 商品登録'); // 参照補記
     expect(svg).toContain('顧客管理システム / 顧客管理 / 顧客情報 / 顧客登録'); // タイトル
   });
@@ -222,6 +224,69 @@ describe('dfdGeometry', () => {
     const ry = routeEdge(b, a, [a, b], undefined, edgeBias(edges, 'y'));
     expect(Math.sign(rx.label.y - 44)).toBe(-Math.sign(ry.label.y - 44));
     expect(Math.abs(rx.label.y - ry.label.y)).toBeGreaterThan(30);
+  });
+
+  it('同じノードの近い位置につながる線の端は、縁に沿って離し、並び順は変えない', () => {
+    // 左のプロセスから、右の遠くに縦に詰めて並ぶ 5 つのデータファンクションへ。端が円の右側に集まる
+    const boxes = new Map<string, Box>([['p', nodeBox('transactionFunction', 0, 200)]]);
+    const edges = [0, 1, 2, 3, 4].map((i) => ({ id: `e${i}`, sourceNodeId: 'p', targetNodeId: `d${i}`, label: '' }));
+    edges.forEach((e, i) => boxes.set(e.targetNodeId, nodeBox('dataFunction', 1400, 80 + i * 70)));
+    const p = boxes.get('p')!;
+    const independent = edges.map((e) => routeEdge(p, boxes.get(e.targetNodeId)!, [...boxes.values()]));
+    const minGap = (rs: EdgeRoute[]) => Math.min(...rs.slice(1).map((r, i) => Math.hypot(r.start.x - rs[i].start.x, r.start.y - rs[i].start.y)));
+    expect(minGap(independent)).toBeLessThan(MIN_END_GAP - 4);
+
+    const routes = edges.map((e) => routeDataflows(boxes, edges).get(e.id)!);
+    // 円の弧に沿って MIN_END_GAP 離すので、直線距離はわずかに短い
+    expect(minGap(routes)).toBeGreaterThan(MIN_END_GAP - 1);
+    for (let i = 1; i < routes.length; i++) expect(routes[i].start.y).toBeGreaterThan(routes[i - 1].start.y);
+    for (const r of routes) {
+      // 端点は円の縁の上にあり、終点側（1 本ずつしかつながらない）は動かさない
+      expect(Math.hypot(r.start.x - 44, r.start.y - 244)).toBeCloseTo(44, 0);
+      expect(r.end.x).toBeCloseTo(1400, 0);
+      expect(r.path).toMatch(/^M [-\d.]+ [-\d.]+ L /);
+    }
+    expect(countCrossings(new Map(edges.map((e, i) => [e.id, routes[i]])), edges)).toBe(0);
+  });
+
+  it('離れた位置につながる線の端は動かさない', () => {
+    const boxes = new Map<string, Box>([['p', nodeBox('transactionFunction', 300, 300)], ['a', nodeBox('externalEntity', 0, 300)], ['b', nodeBox('dataFunction', 600, 300)], ['c', nodeBox('dataFunction', 300, 0)]]);
+    const edges = [{ id: 'x', sourceNodeId: 'a', targetNodeId: 'p', label: '' }, { id: 'y', sourceNodeId: 'p', targetNodeId: 'b', label: '' }, { id: 'z', sourceNodeId: 'p', targetNodeId: 'c', label: '' }];
+    const routes = routeDataflows(boxes, edges);
+    for (const e of edges) {
+      const r = routeEdge(boxes.get(e.sourceNodeId)!, boxes.get(e.targetNodeId)!, [...boxes.values()]);
+      expect(routes.get(e.id)!.path).toBe(r.path);
+    }
+  });
+
+  it('始点の丸印は、始点のノードのすぐ外に置く', () => {
+    const a = nodeBox('externalEntity', 0, 100);
+    const mid = nodeBox('transactionFunction', 300, 86);
+    const b = nodeBox('transactionFunction', 600, 86);
+    for (const r of [routeEdge(a, b, [a, b]), routeEdge(a, b, [a, mid, b])]) {
+      expect(Math.hypot(r.dot.x - r.start.x, r.dot.y - r.start.y)).toBeCloseTo(EDGE_START_DOT + 1, 5);
+      expect(r.dot.x).toBeGreaterThan(a.x + a.width + EDGE_START_DOT / 2);
+    }
+  });
+
+  it('注目しているノード・データフローにつながる線とノードを求める（flowEmphasis）', () => {
+    const edges = [
+      { id: 'in', sourceNodeId: 'ee', targetNodeId: 'p' },
+      { id: 'out', sourceNodeId: 'p', targetNodeId: 'df' },
+      { id: 'other', sourceNodeId: 'q', targetNodeId: 'df' },
+    ];
+    expect(flowEmphasis(edges, [], null)).toBeNull();
+    const byNode = flowEmphasis(edges, ['p'], null)!;
+    expect([...byNode.edges]).toEqual([['in', 'in'], ['out', 'out']]);
+    expect([...byNode.nodes].sort()).toEqual(['df', 'ee', 'p']);
+    // 両端とも注目ノードなら both
+    expect(flowEmphasis(edges, ['p', 'df'], null)!.edges.get('out')).toBe('both');
+    const byEdge = flowEmphasis(edges, [], 'other')!;
+    expect([...byEdge.edges]).toEqual([['other', 'self']]);
+    expect([...byEdge.nodes].sort()).toEqual(['df', 'q']);
+    // ノードの注目を優先する。存在しない線は注目なしとして扱う
+    expect(flowEmphasis(edges, ['q'], 'in')!.edges.has('in')).toBe(false);
+    expect(flowEmphasis(edges, [], 'gone')).toBeNull();
   });
 
   it('ノードは名称が 2 行に収まるよう横に伸び、名称は省略しない（高さは固定）', async () => {

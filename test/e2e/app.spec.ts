@@ -302,6 +302,58 @@ test('自動整列すると、データフローはファンクションの裏�
   await expect(page.locator('.react-flow__edgelabel-renderer')).toContainText('顧客の氏名・住所・電話番号などの登録情報');
 });
 
+test('ノードにマウスを載せる・選択すると、つながるデータフローを強調してほかを薄くし、始点には丸印を付ける（FR-DF-25）', async ({ page }) => {
+  await openSample(page);
+  const canvas = page.getByTestId('dfd-canvas');
+  const edge = (id: string) => canvas.locator(`[data-testid="rf__edge-${id}"]`);
+  const node = (id: string) => canvas.locator(`.react-flow__node[data-id="${id}"]`);
+  const stroke = (id: string) => edge(id).locator('path.react-flow__edge-path').evaluate((p) => getComputedStyle(p).stroke);
+  const expectDim = async (dimEdges: string[], dimNodes: string[]) => {
+    for (const id of ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7']) {
+      if (dimEdges.includes(id)) await expect(edge(id), id).toHaveClass(/dfd-dim/);
+      else await expect(edge(id), id).not.toHaveClass(/dfd-dim/);
+    }
+    for (const id of ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']) {
+      if (dimNodes.includes(id)) await expect(node(id), id).toHaveClass(/dfd-dim/);
+      else await expect(node(id), id).not.toHaveClass(/dfd-dim/);
+    }
+  };
+  // どの線にも始点の丸印がある。何も選んでいなければ、どれも薄くしない
+  await expect(canvas.locator('circle.dfd-edge-dot')).toHaveCount(7);
+  await expectDim([], []);
+
+  // 顧客登録（n2）に載せる: 入る e1、出る e2・e3 と、その相手だけを残す
+  await node('n2').hover();
+  await expectDim(['e4', 'e5', 'e6', 'e7'], ['n4', 'n6']);
+  expect(await stroke('e2')).toBe('rgb(36, 87, 165)'); // 出る線
+  expect(await stroke('e3')).toBe('rgb(36, 87, 165)');
+  expect(await stroke('e1')).toBe('rgb(180, 65, 142)'); // 入る線
+  await shot(page, '34-flow-emphasis');
+  // マウスを外すと戻る
+  const pane = (await canvas.boundingBox())!;
+  await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);
+  await expectDim([], []);
+
+  // 選択でも同じ。顧客検索（n4）には e5・e6・e7 が入る
+  await node('n4').click();
+  await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);
+  await expectDim(['e1', 'e2', 'e3', 'e4'], ['n2', 'n3']);
+  expect(await stroke('e5')).toBe('rgb(180, 65, 142)');
+  // 選択中でも、マウスを載せたノードを優先する
+  await node('n2').hover();
+  await expectDim(['e4', 'e5', 'e6', 'e7'], ['n4', 'n6']);
+  await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);
+
+  // 線に載せると、その線と両端のノードだけを残す
+  await edge('e2').locator('path.react-flow__edge-interaction').hover({ force: true });
+  await expectDim(['e1', 'e3', 'e4', 'e5', 'e6', 'e7'], ['n1', 'n3', 'n4', 'n6']);
+
+  // SVG 出力にも始点の丸印が入る
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'SVG出力' }).click()]);
+  const svg = readFileSync((await dl.path())!, 'utf-8');
+  expect(svg.match(/data-edge-dot/g)).toHaveLength(7);
+});
+
 test('SVG 出力の見た目', async ({ page }) => {
   test.skip(!SHOTS, 'スクリーンショット指定時のみ');
   await openSample(page);

@@ -455,13 +455,15 @@ export function calcSoftwareTotals(doc: FpDocument, softwareId: Id): SoftwareTot
 | ストア | React Flow | 備考 |
 |---|---|---|
 | `DfdNode` ＋ 実体 | `Node<DfdNodeData>`、`type` = refType | `data` に名称・種別・複雑度・displayNo・所有機能名・isReference・hasWarning・description・hasDescription |
-| `DfdEdge` | `Edge`、`type: 'dataflow'` | `label` を表示。`markerEnd: arrowclosed` |
+| `DfdEdge` | `Edge`、`type: 'dataflow'` | `label` を表示。`markerEnd: arrowclosed`。`data.route`（経路）と `data.emphasis`（強調のしかた） |
 | `moveNodes` | `onNodeDragStop` | ドラッグ中は `onNodesChange` で React Flow 内部状態のみ更新 |
 | `addEdge` | `onConnect` ＋ `isValidConnection` | |
 | `removeEdge` / 削除フロー | `onEdgesDelete` / `onBeforeDelete` | ノード削除は `onBeforeDelete` で false を返し、独自の削除フロー（6.5）に委ねる |
 | 選択 | `onSelectionChange` → `uiSlice.selectedNodeIds` | |
 
 React Flow の `nodes` / `edges` は **controlled** とし、ストアから導出した配列を渡す。`onNodesChange` では位置変更と選択変更のみローカルに反映し（`applyNodeChanges`）、確定時にストアへ書く。ストアの変更でノードを作り直すときは、React Flow が測った寸法（`measured`）を前のノードから引き継ぐ（`keepMeasured`。寸法が変わったノードを除く）。引き継がないと React Flow は測り直すまでデータフローを描かず、編集や選択のたびに線が 1 フレーム消える。ファンクション表の DFD プレビューも同じ。
+
+データフローの強調 [FR-DF-25]: 注目している要素（マウスを載せたノード・線。なければ選択）から、強調する線（出る `out`・入る `in`・両端とも注目 `both`・線そのもの `self`）と残すノードを `domain/flowEmphasis.ts` の `flowEmphasis` で求める。`toRfEdges` が線の `data.emphasis` と、薄くする線の `className`（`dfd-dim`）・強調する線の `zIndex` を決め、`dimNodes` が薄くするノードに同じクラスを付ける。マウスを載せた要素は `DfdCanvas` のローカルの state で持つ（保存・履歴の対象外）。経路の計算（`routeRfEdges`）は強調と分けて `useMemo` し、選択やホバーでは計算し直さない。
 
 ### 6.2 カスタムノード [FR-DF 4.4.1]
 
@@ -782,23 +784,25 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options?: { padding?
 | データストア | 2 本の `<line>`（幅 180、間隔 44）。左端にバッジ `<rect>`＋`<text>`。参照の場合は下に `所有: ○○`（fontSize 10、灰色） |
 | 外部エンティティ | `<rect>`（140×60、stroke 1.5） |
 | バッジ | `<rect rx=3>`＋`<text>`。色はノードコンポーネントと同じ定数（`dfdGeometry.ts` の `BADGE_COLORS`） |
-| エッジ | `routeEdge` の経路の `<path>`（直線、またはノードを避ける 2 次ベジェ曲線）。両端はノード境界（円は楕円、矩形は辺との交点）でクリップする。終端に `<marker>` の矢印。ラベルは `routeDataflows` が決めた位置に、白い縁取りの `<text>` を行ごとに置く（`edgeLabelLines` で折り返し、省略しない） |
+| エッジ | `routeEdge` の経路の `<path>`（直線、またはノードを避ける 2 次ベジェ曲線）。両端はノード境界（円は楕円、矩形は辺との交点）でクリップする。終端に `<marker>` の矢印、始点に丸印の `<circle>`。ラベルは `routeDataflows` が決めた位置に、白い縁取りの `<text>` を行ごとに置く（`edgeLabelLines` で折り返し、省略しない） |
 | 名称 | `<text text-anchor="middle">`。ノード幅を超える場合は 2 行に折り返し（全角 1、半角 0.5 で文字幅を概算し `GEOMETRY.label.fontSize` から収まる文字数を決める） |
 | タイトル | `<text>` で「ソフトウェア名 / 大分類 / 中分類 / 機能名」[FR-SVG-04] |
 | フォント | ルート `<svg>` に `font-family` を指定 [FR-SVG-03] |
 | 警告色 | 所有機能未設定のデータストアは stroke を警告色にする（画面と同じ） |
 
-エッジの経路とラベルの位置は `dfdGeometry.ts` の `routeDataflows` で DFD のすべてのデータフローをまとめて求め、画面（`rfMapping.ts` の `toRfEdges` が `data.route` に入れる）と SVG で共有する [FR-SVG-03]。
+エッジの経路とラベルの位置は `dfdGeometry.ts` の `routeDataflows` で DFD のすべてのデータフローをまとめて求め、画面（`rfMapping.ts` の `routeRfEdges` で求め、`toRfEdges` が `data.route` に入れる）と SVG で共有する [FR-SVG-03]。
 
 - 交差を減らす引き直し: 1 本ずつ経路を求めたあと、ほかの線と交わる線について、ノードを避けたまま膨らませる量を今の量から ±120px（15px 刻み）の範囲で変え、交わる本数が減る経路があれば引き直す（2 回まで。試す経路は 160 本まで）。交わりは約 12px おきの点を結ぶ折れ線どうしで調べ、同じノードにつながる端の約 24px は調べない（`countCrossings`）。
 - 両端のノードの中心を結ぶ直線を基本とする。途中のノードを通る（ノードの図形を 6px 膨らませた範囲に入る）か、ラベルの矩形がノードに重なるときは、法線方向に膨らませた 2 次ベジェ曲線にする。膨らませる量は 15px 刻みで左右交互に ±450px まで試し、最初に重ならなくなったものを使う。避けきれなければ重なりが最も少ないものを使う。
 - 同じ 2 つのノードを結ぶデータフローが複数ある（往復など）ときは、`edgeBias` で ±18px ずつ反対側に膨らませて重ならないようにする。
+- 端の分散 [FR-DF-25]: 交差を減らす引き直しのあと、ラベルを置く前に、同じノードの縁の近い位置につながる線の端を、縁に沿って 12px（`MIN_END_GAP`）ずつ離す（`spreadEnds`）。縁の上の並び順は変えず、近すぎる端の集まりを、集まりの中心を動かさずに等間隔に広げる。線が多く一周に収まらないノードでは、間隔を「周の長さ / 本数」まで詰める。縁に沿った距離は、縁を角度で 72 等分した点から求める。経路の制御点は変えずに端点だけを差し替え、ずらしたことでほかのノードを通るようになる線は元のままにする。十分離れている端は動かさない。
+- 始点の丸印 [FR-DF-25]: 始点から線に沿って 4px 進んだ位置（`EdgeRoute.dot`）に、半径 3px（`EDGE_START_DOT`）の丸を線と同じ色で描く。ノードの縁に半分隠れないようにするため。SVG では `<circle data-edge-dot>`。凡例に見本を描く。
 - 曲線上の点を約 8px おきに取り、点の外接矩形と重なるノードだけを調べる。
 - ラベルは、ほかのデータフローの線・ほかのラベル・ノード・システム境界の線に重ならない位置を探す。候補は線の中間点から両端へ 0.06 刻み（0.14〜0.86）で、各位置について線の上、線の両脇（ラベルの矩形が線から離れる分だけ法線方向にずらす）の順に試す。線の上に置くと、線が短くて矢じりや線のほとんどが隠れる（ラベルの外に見える線が始点側 16px・終点側 32px 未満）ときは、ほかの線に重なるより悪いとみなし、線の脇を優先する。見つからなければ重なりが最も少ない位置にする。大きいラベルから順に置く。
 - ほかの線は約 12px おきの点を結ぶ折れ線にし、8 区間ごとの外接矩形で絞り込んでから、線分と矩形の交差で判定する。
 - 経路とラベルの計算は 20 ノード・30 データフローで約 7ms、100 ノード・150 データフローで約 180ms（単体テストで 500ms 以内を確認）。
 - ラベルの折り返し（`edgeLabelLines`）は 12 文字幅以内で行の幅をそろえ、句読点・閉じ括弧・中点を行頭に、開き括弧を行末に置かない。
-- 画面ではノードの移動（ドラッグ中を含む）に追従して計算し直す（`DfdCanvas` のローカルのノード位置と境界から `toRfEdges` で求める）。
+- 画面ではノードの移動（ドラッグ中を含む）に追従して計算し直す（`DfdCanvas` のローカルのノード位置と境界から `routeRfEdges` で求める）。
 
 ファイル名は `<ソフトウェア名>_<機能名>.svg`。`downloadText(filename, svg, 'image/svg+xml')`。
 
@@ -919,6 +923,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |
 | FR-DF-17、FR-SVG-06 | `domain/legend.ts`（`buildDfdLegend`、画面と SVG で共用）、`features/dfd/DfdLegend.tsx`、9.2（`renderLegend`） |
+| FR-DF-25 | `domain/flowEmphasis.ts`（`flowEmphasis`）、`domain/dfdGeometry.ts`（`spreadEnds`、`EdgeRoute.dot`）、`features/dfd/rfMapping.ts`（`routeRfEdges`、`toRfEdges`、`dimNodes`）、6.1、9.2 |
 | FR-DF-16 | 6.2（メモアイコンと Tooltip）、4.3（`hasDescription`） |
 | FR-ID-01 | 3（displayNo、seq）、`domain/ids.ts` |
 | FR-ID-02〜03 | 5.3 |
@@ -996,6 +1001,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | データフローの経路とラベル（FR-DF-12、FR-SVG-03） | 両端をクリップした直線。ラベルは 1 行 | 途中のノードやラベルの重なりを曲線で避ける（`routeEdge`）。ラベルは折り返して全文を表示し、ほかの線・ラベル・境界の線を隠さない位置に置く（`routeDataflows`）。自動整列ではラベルの大きさの分だけノードの間を空ける | 整列後に矢印がファンクションの裏を通って見えなくなる、長いラベルがノードに隠れて切れる、折り返した長いラベルが近くの線を隠すことがあったため |
 | 自動整列の交差の削減（FR-DF-12） | dagre の結果の順をそのまま使う | 並べる向きを外部エンティティ → プロセス → データファンクションにそろえ、段の中の順を重心法と局所探索で変える。外部エンティティと EIF はつながる要素に寄せる。線は交わりが減るように引き直す | データフローの線が交差して読みにくいことがあったため |
 | 短いデータフローのラベル（FR-DF-12） | 他と重ならなければ常に線の上に置く | 線の上に置くと矢じりや線のほとんどが隠れるときは線の脇に置く。自動整列でラベルの両側に空ける幅を 28px から 36px に広げる | 短い矢印がラベルに隠れて見えなくなることがあったため |
+| データフローの出どころの見分け（FR-DF-25） | 線はすべて同じ色で、端はノードの中心に向かう位置。強調は線を選んだときだけ | 始点に丸印を付け、同じノードの近い位置につながる端を縁に沿って離す（画面・SVG）。ノードや線にマウスを載せるか選択すると、つながる線を強調してほかを薄くし、出る線と入る線を色で分ける（画面）。経路の計算は強調と分け、選択・ホバーでは計算し直さない | データフローが増えると、どの線がどのノードから出ているのか分かりにくかったため |
 | ツリーのドラッグ並べ替え（FR-CT-02） | 上下移動のメニューのみ | HTML5 のドラッグ＆ドロップで実装（`features/tree/FeatureTree.tsx` の `planDrop`）。`moveCategory` に移動先の大分類（`newParentId`）を追加し、中分類を別の大分類へ移せるようにした。`moveCategory`・`moveFeature` はソフトウェアをまたぐ移動と並びが変わらない移動を事前に判定し、履歴を積まない | データファンクションや外注業者がソフトウェア単位のため、ソフトウェア間の移動は扱わない |
 | ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
 | 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |

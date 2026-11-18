@@ -16,6 +16,10 @@ body { overflow-x: auto; }
 .react-flow__node:focus-visible .dfd-node { outline: 2px solid #2457A5; outline-offset: 4px; }
 .react-flow__node.selectable:hover .dfd-node { filter: brightness(0.99); }
 
+/* 選択・ホバーしているノードや線につながらないノード・データフローを薄くする（ui-design.md 4.6） */
+.react-flow__node, .react-flow__edge { transition: opacity .12s; }
+.react-flow__node.dfd-dim, .react-flow__edge.dfd-dim { opacity: .35; }
+
 .react-flow__controls { border: 1px solid #D5D9E0; border-radius: 6px; overflow: hidden; box-shadow: none; }
 .react-flow__controls-button { width: 28px; height: 28px; border-bottom: 1px solid #D5D9E0; }
 .react-flow__minimap { background: rgba(255,255,255,.9); }

@@ -32,7 +32,8 @@ import { NodePalette, PALETTE_MIME } from './NodePalette';
 import { ReferenceDialog } from './ReferenceDialog';
 import { DfdLegendPanel } from './DfdLegend';
 import { DFD_FIT_VIEW } from './fitView';
-import { keepMeasured, toRfEdges, toRfNodes, withBoundary } from './rfMapping';
+import { dimNodes, keepMeasured, routeRfEdges, toRfEdges, toRfNodes, withBoundary } from './rfMapping';
+import { flowEmphasis } from '../../domain/flowEmphasis';
 import { softwareIdOfFeature } from '../../domain/queries';
 
 /** 機能ごとのビューポート（UI 状態。保存・履歴の対象外、design.md 6.7） */
@@ -60,7 +61,18 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
   // ドラッグ中のローカル位置から境界を計算し直す（FR-DF-19）
   const displayNodes = useMemo(() => withBoundary(nodes, softwareName), [nodes, softwareName]);
   // データフローの経路とラベルの位置も、ドラッグ中のローカル位置と境界から求める
-  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId, displayNodes), [dfdEdges, selectedEdgeId, displayNodes]);
+  const routes = useMemo(() => routeRfEdges(dfdEdges ?? [], displayNodes), [dfdEdges, displayNodes]);
+  // ホバー（なければ選択）しているノードや線につながる線を強調し、ほかを薄くする。経路は計算し直さない
+  const [hover, setHover] = useState<{ nodeId: Id } | { edgeId: Id } | null>(null);
+  const focus = useMemo(() => {
+    const all = dfdEdges ?? [];
+    // 削除された要素にはマウスが外れた通知が来ないので、残っているものだけを対象にする
+    if (hover && 'nodeId' in hover && nodes.some((n) => n.id === hover.nodeId)) return flowEmphasis(all, [hover.nodeId], null);
+    if (hover && 'edgeId' in hover && all.some((e) => e.id === hover.edgeId)) return flowEmphasis(all, [], hover.edgeId);
+    return flowEmphasis(all, selectedNodeIds, selectedEdgeId);
+  }, [dfdEdges, hover, nodes, selectedNodeIds, selectedEdgeId]);
+  const edges = useMemo(() => toRfEdges(dfdEdges ?? [], routes, selectedEdgeId, focus), [dfdEdges, routes, selectedEdgeId, focus]);
+  const shownNodes = useMemo(() => dimNodes(displayNodes, focus), [displayNodes, focus]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<DfdRfNode>[]) => {
@@ -190,12 +202,16 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
       data-testid="dfd-canvas"
     >
       <ReactFlow<DfdRfNode, DataflowEdgeType>
-        nodes={displayNodes}
+        nodes={shownNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeMouseEnter={(_, n) => { if (n.type !== 'boundary') setHover({ nodeId: n.id }); }}
+        onNodeMouseLeave={() => setHover(null)}
+        onEdgeMouseEnter={(_, e) => setHover({ edgeId: e.id })}
+        onEdgeMouseLeave={() => setHover(null)}
         onConnect={onConnect}
         onConnectEnd={onConnectEnd}
         // ダブルクリックでプロパティパネルの名称（データフローはラベル）を編集する

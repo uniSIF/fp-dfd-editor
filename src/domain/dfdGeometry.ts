@@ -179,6 +179,29 @@ export interface EdgeRoute {
   offset: number;
   /** ラベルの中心。routeEdge では線の中間点、routeDataflows では他の線・ラベルを避けた位置 */
   label: Point;
+  /** 始点の丸印の中心。ノードに隠れないよう、始点から線に沿って少し進んだ位置 */
+  dot: Point;
+}
+
+/** 始点の丸印の半径。どのノードから出る線かを、矢じりのない側でも見分けられるようにする */
+export const EDGE_START_DOT = 3;
+
+/** 両端と制御点（直線なら null）から経路を作る。ラベルは線の中間点に置く */
+function makeRoute(start: Point, end: Point, control: Point | null, offset: number): EdgeRoute {
+  const r: EdgeRoute = control
+    ? {
+        path: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
+        start,
+        end,
+        label: { x: 0.25 * start.x + 0.5 * control.x + 0.25 * end.x, y: 0.25 * start.y + 0.5 * control.y + 0.25 * end.y },
+        control,
+        offset,
+        dot: start,
+      }
+    : { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, end, control: null, offset, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, dot: start };
+  const t = tangentOnRoute(r, 0);
+  r.dot = { x: start.x + t.x * (EDGE_START_DOT + 1), y: start.y + t.y * (EDGE_START_DOT + 1) };
+  return r;
 }
 
 /** 経路上の点（t は 0〜1） */
@@ -280,23 +303,10 @@ function edgeRouter(sb: Box, tb: Box, obstacles: Box[], labelSize: { width: numb
   const others = obstacles.filter((o) => !sameBox(o, sb) && !sameBox(o, tb));
 
   const build = (k: number): EdgeRoute => {
-    if (k === 0) {
-      const start = clipToBoundary(sb, tc);
-      const end = clipToBoundary(tb, sc);
-      return { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, end, control: null, offset: 0, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
-    }
+    if (k === 0) return makeRoute(clipToBoundary(sb, tc), clipToBoundary(tb, sc), null, 0);
     // 中間点が k だけずれるよう、制御点は中心どうしの中点から 2k 離す
     const c = { x: (sc.x + tc.x) / 2 + nx * k * 2, y: (sc.y + tc.y) / 2 + ny * k * 2 };
-    const start = clipToBoundary(sb, c);
-    const end = clipToBoundary(tb, c);
-    return {
-      path: `M ${start.x} ${start.y} Q ${c.x} ${c.y} ${end.x} ${end.y}`,
-      start,
-      end,
-      label: { x: 0.25 * start.x + 0.5 * c.x + 0.25 * end.x, y: 0.25 * start.y + 0.5 * c.y + 0.25 * end.y },
-      control: c,
-      offset: k,
-    };
+    return makeRoute(clipToBoundary(sb, c), clipToBoundary(tb, c), c, k);
   };
   /** 線が通るノードと、ラベルが重なるノードの数。limit に達したら数えるのをやめる */
   const hits = (r: EdgeRoute, limit: number): number => {
@@ -434,6 +444,101 @@ function visibleAroundLabel(r: EdgeRoute, p: Point, size: { width: number; heigh
   return first < 0 ? { lead: total, tail: total } : { lead: first, tail: total - last };
 }
 
+/** 同じノードにつながる線の端どうしを、ノードの縁に沿って離す間隔（px） */
+export const MIN_END_GAP = 12;
+
+/** 縁を一周する点の数（spreadEnds で縁に沿った距離を測る） */
+const OUTLINE_STEPS = 72;
+
+/**
+ * 同じノードの縁の近い位置につながる線の端を、縁に沿って MIN_END_GAP ずつ離す（design.md 9.2）。
+ * 線が根元で重なると、どの線がそのノードから出ているのか追えないため。
+ * 縁の上の並び順は変えず、近すぎる端の集まりを、集まりの中心を動かさずに等間隔に広げる。
+ * 線が多く一周に収まらないノードでは、間隔を「周の長さ / 本数」まで詰める。
+ * 経路の制御点は変えず、端点だけを差し替える。ずらしたことでほかのノードを通るようになる線は、元のままにする。
+ */
+function spreadEnds(boxes: Map<string, Box>, edges: ({ id: string; label: string } & FlowEnds)[], routes: Map<string, EdgeRoute>, obstacles: Box[]): void {
+  const ends = new Map<string, { id: string; side: 'start' | 'end'; p: Point }[]>();
+  for (const e of edges) {
+    const r = routes.get(e.id);
+    if (!r || e.sourceNodeId === e.targetNodeId) continue;
+    for (const [nodeId, side] of [[e.sourceNodeId, 'start'], [e.targetNodeId, 'end']] as const) {
+      if (!ends.has(nodeId)) ends.set(nodeId, []);
+      ends.get(nodeId)!.push({ id: e.id, side, p: r[side] });
+    }
+  }
+  const moved = new Map<string, { start?: Point; end?: Point }>();
+  for (const [nodeId, list] of ends) {
+    const b = boxes.get(nodeId)!;
+    if (list.length < 2 || !b.width || !b.height) continue;
+    const c = boxCenter(b);
+    // 縁を角度で等分した点と、そこまでの縁に沿った距離
+    const outline: Point[] = [];
+    const dist: number[] = [0];
+    for (let i = 0; i <= OUTLINE_STEPS; i++) {
+      const a = (i / OUTLINE_STEPS) * Math.PI * 2;
+      outline.push(clipToBoundary(b, { x: c.x + Math.cos(a), y: c.y + Math.sin(a) }));
+      if (i > 0) dist.push(dist[i - 1] + Math.hypot(outline[i].x - outline[i - 1].x, outline[i].y - outline[i - 1].y));
+    }
+    const perimeter = dist[OUTLINE_STEPS];
+    const toDist = (p: Point) => {
+      const a = (Math.atan2(p.y - c.y, p.x - c.x) + Math.PI * 2) % (Math.PI * 2);
+      const f = (a / (Math.PI * 2)) * OUTLINE_STEPS;
+      const i = Math.min(Math.floor(f), OUTLINE_STEPS - 1);
+      return dist[i] + (dist[i + 1] - dist[i]) * (f - i);
+    };
+    const toPoint = (s: number) => {
+      const d = ((s % perimeter) + perimeter) % perimeter;
+      let i = 0;
+      while (i < OUTLINE_STEPS - 1 && dist[i + 1] < d) i++;
+      const f = (d - dist[i]) / (dist[i + 1] - dist[i] || 1);
+      // 角の近くでは点どうしを結ぶ線分が縁の内側を通るので、縁の上に戻す
+      return clipToBoundary(b, { x: outline[i].x + (outline[i + 1].x - outline[i].x) * f, y: outline[i].y + (outline[i + 1].y - outline[i].y) * f });
+    };
+    const sorted = list.map((x) => ({ ...x, s: toDist(x.p) })).sort((x, y) => x.s - y.s);
+    const n = sorted.length;
+    const gap = Math.min(MIN_END_GAP, perimeter / n);
+    const gapAfter = (i: number) => (i === n - 1 ? sorted[0].s + perimeter - sorted[i].s : sorted[i + 1].s - sorted[i].s);
+    if (sorted.every((_, i) => gapAfter(i) >= gap - 0.01)) continue;
+    // 一周のうち最も空いているところで切り開いて、1 本の線の上の並びとして扱う
+    let cut = 0;
+    for (let i = 1; i < n; i++) if (gapAfter(i) > gapAfter(cut)) cut = i;
+    const line = Array.from({ length: n }, (_, i) => {
+      const j = (cut + 1 + i) % n;
+      return { ...sorted[j], s: sorted[j].s + (j <= cut ? perimeter : 0) };
+    });
+    // i 番目から i * gap を引いた値が小さい順に並べば、間隔は gap 以上になる。
+    // 並びが逆転しているところは、平均にまとめる（集まりの中心を保ったまま等間隔になる）
+    const blocks: { sum: number; count: number }[] = [];
+    line.forEach((x, i) => {
+      blocks.push({ sum: x.s - i * gap, count: 1 });
+      while (blocks.length > 1 && blocks[blocks.length - 2].sum / blocks[blocks.length - 2].count > blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count) {
+        const last = blocks.pop()!;
+        blocks[blocks.length - 1].sum += last.sum;
+        blocks[blocks.length - 1].count += last.count;
+      }
+    });
+    let i = 0;
+    for (const blk of blocks) {
+      for (let k = 0; k < blk.count; k++, i++) {
+        const s = blk.sum / blk.count + i * gap;
+        if (Math.abs(s - line[i].s) < 0.01) continue;
+        if (!moved.has(line[i].id)) moved.set(line[i].id, {});
+        moved.get(line[i].id)![line[i].side] = toPoint(s);
+      }
+    }
+  }
+  for (const e of edges) {
+    const m = moved.get(e.id);
+    const cur = routes.get(e.id);
+    if (!m || !cur) continue;
+    const next = makeRoute(m.start ?? cur.start, m.end ?? cur.end, cur.control, cur.offset);
+    const { hits } = edgeRouter(boxes.get(e.sourceNodeId)!, boxes.get(e.targetNodeId)!, obstacles, edgeLabelSize(e.label));
+    if (hits(next, 1) > 0 && hits(cur, 1) === 0) continue;
+    routes.set(e.id, next);
+  }
+}
+
 /** ラベルを置く候補の位置（線の中間点から両端へ 0.06 刻み。0.14〜0.86） */
 const LABEL_POSITIONS = [0.5, ...Array.from({ length: 6 }, (_, i) => [0.5 - (i + 1) * 0.06, 0.5 + (i + 1) * 0.06]).flat()];
 
@@ -501,6 +606,7 @@ export function routeDataflows(
     }
     if (!improved) break;
   }
+  spreadEnds(boxes, edges, routes, obstacles);
   // ほかの線との重なりを調べるため、各線を約 12px おきの点を結ぶ折れ線にし、8 区間ずつ外接矩形を付けて分けておく
   const lines: { id: string; pts: Point[]; minX: number; maxX: number; minY: number; maxY: number }[] = [];
   for (const [id, r] of routes) {
