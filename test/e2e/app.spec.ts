@@ -18,6 +18,16 @@ async function openSample(page: Page) {
   await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
 }
 
+/**
+ * ファンクション表の行のチェックボックスを入れる。DataGrid の選択は表の state で管理しており（controlled）、
+ * クリックしてから再描画を経てチェックが付くため、check() の直後の確認ではなく、付くまで待つ。
+ */
+async function checkRow(page: Page, text: string) {
+  const box = page.getByRole('row').filter({ hasText: text }).getByRole('checkbox').first();
+  await box.click();
+  await expect(box).toBeChecked();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.clear());
@@ -776,7 +786,7 @@ test('ファンクション表で複数選んで、文言を置換しながら�
   await openSample(page);
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
   for (const t of ['利用者', '顧客登録入力', '顧客マスタ', '登録完了通知']) {
-    await page.getByRole('row').filter({ hasText: t }).getByRole('checkbox').first().check();
+    await checkRow(page, t);
   }
   await page.getByRole('button', { name: '選択した 4 件をコピー…' }).click();
   const dialog = page.getByRole('dialog');
@@ -801,7 +811,7 @@ test('ファンクション表で複数選んで、文言を置換しながら�
   await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
 
   // 別の機能へのコピー
-  await page.getByRole('row').filter({ hasText: '顧客検索' }).getByRole('checkbox').first().check();
+  await checkRow(page, '顧客検索');
   await page.getByRole('button', { name: '選択した 1 件をコピー…' }).click();
   await page.getByRole('combobox', { name: 'コピー先の機能' }).click();
   await page.getByRole('option', { name: /商品登録/ }).click();
@@ -1009,7 +1019,7 @@ test('ファンクション表で選んだ要素を、ID はそのままで他�
   await openSample(page);
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
   for (const t of ['利用者', '顧客マスタ', '顧客登録入力']) {
-    await page.getByRole('row').filter({ hasText: t }).getByRole('checkbox').first().check();
+    await checkRow(page, t);
   }
   await page.getByRole('button', { name: '他の DFD に参照配置…' }).click();
   const dialog = page.getByRole('dialog');

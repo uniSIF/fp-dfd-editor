@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
-import { Background, BackgroundVariant, ConnectionMode, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react';
+import { applyNodeChanges, Background, BackgroundVariant, ConnectionMode, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { Id } from '../../domain/types';
 import { useStore } from '../../store';
@@ -9,7 +9,7 @@ import { selectDfdNodes } from '../../store/selectors';
 import { tokens } from '../app/theme';
 import { edgeTypes, type DataflowEdgeType } from '../dfd/edges/DataflowEdge';
 import { nodeTypes, type DfdRfNode } from '../dfd/nodes/DfdNodes';
-import { toRfEdges, toRfNodes, withBoundary } from '../dfd/rfMapping';
+import { keepMeasured, toRfEdges, toRfNodes, withBoundary } from '../dfd/rfMapping';
 import { softwareIdOfFeature } from '../../domain/queries';
 import { DfdLegendInline } from '../dfd/DfdLegend';
 
@@ -70,7 +70,9 @@ function PreviewFlow({ featureId, height }: { featureId: Id; height: number }) {
   const view = selectDfdNodes(doc, featureId);
   const swId = softwareIdOfFeature(doc, featureId);
   const softwareName = swId ? doc.softwares[swId]?.name ?? '' : '';
-  const nodes = useMemo(() => withBoundary(toRfNodes(view, selectedNodeIds), softwareName), [view, selectedNodeIds, softwareName]);
+  // React Flow が測った寸法をノードに持たせておき、作り直すときに引き継ぐ（keepMeasured）
+  const [nodes, setNodes] = useState<DfdRfNode[]>([]);
+  useEffect(() => setNodes((prev) => keepMeasured(prev, withBoundary(toRfNodes(view, selectedNodeIds), softwareName))), [view, selectedNodeIds, softwareName]);
   const dfdEdges = doc.features[featureId]?.dfd.edges;
   const edges = useMemo(() => toRfEdges(dfdEdges ?? [], selectedEdgeId, nodes), [dfdEdges, selectedEdgeId, nodes]);
   const rf = useReactFlow<DfdRfNode, DataflowEdgeType>();
@@ -96,6 +98,10 @@ function PreviewFlow({ featureId, height }: { featureId: Id; height: number }) {
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodesChange={(changes) => {
+          const dims = changes.filter((c) => c.type === 'dimensions');
+          if (dims.length) setNodes((ns) => applyNodeChanges(dims, ns));
+        }}
         nodesDraggable={false}
         nodesConnectable={false}
         connectionMode={ConnectionMode.Loose}

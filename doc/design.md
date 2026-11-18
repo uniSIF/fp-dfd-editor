@@ -461,7 +461,7 @@ export function calcSoftwareTotals(doc: FpDocument, softwareId: Id): SoftwareTot
 | `removeEdge` / 削除フロー | `onEdgesDelete` / `onBeforeDelete` | ノード削除は `onBeforeDelete` で false を返し、独自の削除フロー（6.5）に委ねる |
 | 選択 | `onSelectionChange` → `uiSlice.selectedNodeIds` | |
 
-React Flow の `nodes` / `edges` は **controlled** とし、ストアから導出した配列を渡す。`onNodesChange` では位置変更と選択変更のみローカルに反映し（`applyNodeChanges`）、確定時にストアへ書く。
+React Flow の `nodes` / `edges` は **controlled** とし、ストアから導出した配列を渡す。`onNodesChange` では位置変更と選択変更のみローカルに反映し（`applyNodeChanges`）、確定時にストアへ書く。ストアの変更でノードを作り直すときは、React Flow が測った寸法（`measured`）を前のノードから引き継ぐ（`keepMeasured`。寸法が変わったノードを除く）。引き継がないと React Flow は測り直すまでデータフローを描かず、編集や選択のたびに線が 1 フレーム消える。ファンクション表の DFD プレビューも同じ。
 
 ### 6.2 カスタムノード [FR-DF 4.4.1]
 

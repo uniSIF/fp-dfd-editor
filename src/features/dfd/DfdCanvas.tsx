@@ -32,7 +32,7 @@ import { NodePalette, PALETTE_MIME } from './NodePalette';
 import { ReferenceDialog } from './ReferenceDialog';
 import { DfdLegendPanel } from './DfdLegend';
 import { DFD_FIT_VIEW } from './fitView';
-import { toRfEdges, toRfNodes, withBoundary } from './rfMapping';
+import { keepMeasured, toRfEdges, toRfNodes, withBoundary } from './rfMapping';
 import { softwareIdOfFeature } from '../../domain/queries';
 
 /** 機能ごとのビューポート（UI 状態。保存・履歴の対象外、design.md 6.7） */
@@ -53,7 +53,7 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
 
   // ストアから React Flow のノードを導出し、ドラッグ中だけローカルに位置を持つ（design.md 6.1）
   const [nodes, setNodes] = useState<DfdRfNode[]>([]);
-  useEffect(() => setNodes(toRfNodes(view, selectedNodeIds)), [view, selectedNodeIds]);
+  useEffect(() => setNodes((prev) => keepMeasured(prev, toRfNodes(view, selectedNodeIds))), [view, selectedNodeIds]);
 
   const swId = softwareIdOfFeature(doc, featureId);
   const softwareName = swId ? doc.softwares[swId]?.name ?? '' : '';
