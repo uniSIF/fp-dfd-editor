@@ -909,6 +909,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-FN-18 | 4.2（`copyFunctions`）、`features/functions/CopyFunctionsDialog.tsx`、`FunctionTable.tsx`（`checkboxSelection`） |
 | FR-FN-19 | 4.2（`placeReferences`）、`features/functions/PlaceReferencesDialog.tsx`、`FunctionTable.tsx`（選択した行の操作バー） |
 | FR-ID-07 | `features/app/commands.ts`（`transferDataFunctionOwner`。ストアは `updateDataFunction`）、`PropertyPanel.tsx`（`PlacedFeatures`）、`FunctionTable.tsx`（参照行の操作） |
+| FR-ID-08 | `features/summary/FunctionLedger.tsx`（`deleteRow`。ストアは `removeEntity`、確認は `openConfirm`） |
 | FR-CT-06 | `domain/queries.ts`（`featureIdsUnder` / `dataFunctionsOwnedBy`）、4.2（`removeFeature` / `removeCategory` の `DataFunctionDisposition`）、`features/tree/DeleteFeaturesDialog.tsx` |
 | FR-IO-01 | `domain/exchange.ts`（`buildExchange`）、`features/agent/AgentExportDialog.tsx`、`infra/clipboard.ts` |
 | FR-IO-02 | `domain/exchange.ts`（`parseExchange` / `planImport`）、4.2（`applyImportPlan`）、`features/agent/AgentImportDialog.tsx` |

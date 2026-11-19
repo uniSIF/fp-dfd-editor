@@ -1,7 +1,9 @@
+import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import InputBase from '@mui/material/InputBase';
 import Link from '@mui/material/Link';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -21,6 +23,29 @@ import { WarningChip, WarningIcon } from '../common/WarningIcon';
 import { gridPaging, gridSx } from '../functions/FunctionTable';
 
 const UNSET = '__unset__';
+
+/**
+ * 台帳の行のファンクションを、確認のうえ実体ごと削除する（FR-ID-08）。所有・所属機能の DFD からも取り除く。
+ * ほかの機能が参照しているデータファンクションは削除できない（ボタンを無効にしている。removeEntity でも拒否する）。
+ */
+function deleteRow(row: LedgerRow) {
+  const s = useStore.getState();
+  const where = row.ownerFeatureId === null ? '' : `${row.type === 'data' ? '所有機能' : '所属機能'}「${row.ownerLabel}」の DFD からも取り除かれ、`;
+  s.openConfirm({
+    title: `「${row.name}」（${row.displayNo}）を削除しますか`,
+    message: `${where}FP の計上から外れます。`,
+    actions: [
+      { label: 'キャンセル' },
+      {
+        label: '削除', color: 'error', variant: 'contained',
+        onClick: () => {
+          const r = useStore.getState().removeEntity(row.type === 'data' ? 'dataFunction' : 'transactionFunction', row.id);
+          if (!r.ok) useStore.getState().notify(r.reason, 'error');
+        },
+      },
+    ],
+  });
+}
 
 /** ファンクション台帳（FR-ID-05、FR-ID-06） */
 export function FunctionLedger({ softwareId }: { softwareId: Id }) {
@@ -83,6 +108,23 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
     {
       field: 'warning', headerName: '', width: 40, sortable: false,
       renderCell: ({ row }) => row.warning && <Tooltip title={row.warning}><span style={{ display: 'inline-flex' }}><WarningIcon /></span></Tooltip>,
+    },
+    {
+      field: 'actions', headerName: '', width: 44, sortable: false, resizable: false,
+      renderCell: ({ row }) => {
+        // ほかの機能が参照として置いているデータファンクションは、先に参照を外してもらう
+        const blocked = row.type === 'data' && row.referencingFeatures.length > 0;
+        const title = blocked ? `機能「${row.referencingFeatures.map((f) => f.name).join('」「')}」が参照しているため削除できません。先に参照を解除してください。` : '削除';
+        return (
+          <Tooltip title={title}>
+            <span style={{ display: 'inline-flex' }}>
+              <IconButton size="small" disabled={blocked} aria-label={`${row.name} を削除`} onClick={(e) => { e.stopPropagation(); deleteRow(row); }}>
+                <CloseIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        );
+      },
     },
   ];
 

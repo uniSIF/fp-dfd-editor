@@ -1570,3 +1570,39 @@ test('台帳・ファンクション表は、100 件を超えてもページを�
   await page.getByRole('button', { name: '最後のページ' }).or(page.getByRole('button', { name: '次のページ' })).first().click();
   await expect(page.getByText(/^101〜200 件目/)).toBeVisible();
 });
+
+test('台帳からファンクションを削除できる。ほかの機能が参照しているデータファンクションは削除できない（FR-ID-08）', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('tab', { name: '台帳' }).click();
+  // 商品マスタは顧客登録が参照しているので削除できない
+  await expect(page.getByRole('button', { name: '商品マスタ を削除' })).toBeDisabled();
+  // 顧客マスタを削除する: 確認のうえ、台帳と DFD から消え、費用が変わる
+  await page.getByRole('button', { name: '顧客マスタ を削除' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('「顧客マスタ」（DF-001）を削除しますか');
+  await expect(dialog).toContainText('顧客登録」の DFD からも取り除かれ');
+  await shot(page, '36-ledger-delete');
+  await dialog.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(page.getByRole('gridcell', { name: '顧客マスタ', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '顧客マスタ を削除' }).click();
+  await dialog.getByRole('button', { name: '削除' }).click();
+  await expect(page.getByRole('gridcell', { name: '顧客マスタ', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^データファンクション 1$/ })).toBeVisible();
+  await expect(page.getByTestId('cost-feature')).not.toHaveText('820,000');
+
+  // トランザクションファンクションも削除できる
+  await page.getByRole('button', { name: /^トランザクション \d+$/ }).click();
+  await page.getByRole('button', { name: '登録完了通知 を削除' }).click();
+  await expect(dialog).toContainText('所属機能');
+  await dialog.getByRole('button', { name: '削除' }).click();
+  await expect(page.getByRole('gridcell', { name: '登録完了通知', exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'DFD' }).click();
+  await expect(page.locator(NODE)).toHaveCount(4);
+
+  // Undo で 1 件ずつ戻る
+  await page.getByRole('button', { name: /元に戻す/ }).click();
+  await expect(page.locator(NODE)).toHaveCount(5);
+  await page.getByRole('button', { name: /元に戻す/ }).click();
+  await expect(page.locator(NODE)).toHaveCount(6);
+  await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
+});
