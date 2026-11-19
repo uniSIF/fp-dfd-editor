@@ -14,7 +14,7 @@ export const tokens = {
   primary: '#2457A5',
   primaryHover: '#1C4684',
   primarySoft: '#E6EEFA',
-  /** 選択・ホバーしているノードに入るデータフロー（出る線は primary） */
+  /** マウスを載せたノードに入るデータフロー（出る線は primary） */
   flowIn: '#B4418E',
   warning: '#B4690E',
   warningSoft: '#FFF3DC',

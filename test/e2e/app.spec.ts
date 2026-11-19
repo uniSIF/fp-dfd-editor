@@ -302,7 +302,7 @@ test('自動整列すると、データフローはファンクションの裏�
   await expect(page.locator('.react-flow__edgelabel-renderer')).toContainText('顧客の氏名・住所・電話番号などの登録情報');
 });
 
-test('ノードにマウスを載せる・選択すると、つながるデータフローを強調してほかを薄くし、始点には丸印を付ける（FR-DF-25）', async ({ page }) => {
+test('ノードや線にマウスを載せると、つながるデータフローを強調してほかを薄くし、始点には丸印を付ける（FR-DF-25）', async ({ page }) => {
   await openSample(page);
   const canvas = page.getByTestId('dfd-canvas');
   const edge = (id: string) => canvas.locator(`[data-testid="rf__edge-${id}"]`);
@@ -334,12 +334,11 @@ test('ノードにマウスを載せる・選択すると、つながるデー�
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);
   await expectDim([], []);
 
-  // 選択でも同じ。顧客検索（n4）には e5・e6・e7 が入る
+  // 選択しただけでは薄くしない（マウスを外すと全体が見える）。選択中でも、載せたノードの線は強調する
   await node('n4').click();
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);
-  await expectDim(['e1', 'e2', 'e3', 'e4'], ['n2', 'n3']);
-  expect(await stroke('e5')).toBe('rgb(180, 65, 142)');
-  // 選択中でも、マウスを載せたノードを優先する
+  await expectDim([], []);
+  expect(await stroke('e5')).toBe('rgb(174, 181, 191)');
   await node('n2').hover();
   await expectDim(['e4', 'e5', 'e6', 'e7'], ['n4', 'n6']);
   await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height - 4);

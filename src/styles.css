@@ -16,7 +16,7 @@ body { overflow-x: auto; }
 .react-flow__node:focus-visible .dfd-node { outline: 2px solid #2457A5; outline-offset: 4px; }
 .react-flow__node.selectable:hover .dfd-node { filter: brightness(0.99); }
 
-/* 選択・ホバーしているノードや線につながらないノード・データフローを薄くする（ui-design.md 4.6） */
+/* マウスを載せたノードや線につながらないノード・データフローを薄くする（ui-design.md 4.6） */
 .react-flow__node, .react-flow__edge { transition: opacity .12s; }
 .react-flow__node.dfd-dim, .react-flow__edge.dfd-dim { opacity: .35; }
 

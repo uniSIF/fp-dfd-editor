@@ -62,15 +62,16 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
   const displayNodes = useMemo(() => withBoundary(nodes, softwareName), [nodes, softwareName]);
   // データフローの経路とラベルの位置も、ドラッグ中のローカル位置と境界から求める
   const routes = useMemo(() => routeRfEdges(dfdEdges ?? [], displayNodes), [dfdEdges, displayNodes]);
-  // ホバー（なければ選択）しているノードや線につながる線を強調し、ほかを薄くする。経路は計算し直さない
+  // マウスを載せたノードや線につながる線を強調し、ほかを薄くする。経路は計算し直さない。
+  // 選択では薄くしない（プロパティを編集している間も図の全体が見えるように）
   const [hover, setHover] = useState<{ nodeId: Id } | { edgeId: Id } | null>(null);
   const focus = useMemo(() => {
     const all = dfdEdges ?? [];
     // 削除された要素にはマウスが外れた通知が来ないので、残っているものだけを対象にする
     if (hover && 'nodeId' in hover && nodes.some((n) => n.id === hover.nodeId)) return flowEmphasis(all, [hover.nodeId], null);
-    if (hover && 'edgeId' in hover && all.some((e) => e.id === hover.edgeId)) return flowEmphasis(all, [], hover.edgeId);
-    return flowEmphasis(all, selectedNodeIds, selectedEdgeId);
-  }, [dfdEdges, hover, nodes, selectedNodeIds, selectedEdgeId]);
+    if (hover && 'edgeId' in hover) return flowEmphasis(all, [], hover.edgeId);
+    return null;
+  }, [dfdEdges, hover, nodes]);
   const edges = useMemo(() => toRfEdges(dfdEdges ?? [], routes, selectedEdgeId, focus), [dfdEdges, routes, selectedEdgeId, focus]);
   const shownNodes = useMemo(() => dimNodes(displayNodes, focus), [displayNodes, focus]);
 

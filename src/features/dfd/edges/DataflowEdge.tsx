@@ -4,7 +4,7 @@ import { EDGE_LABEL, EDGE_START_DOT, edgeLabelLines, type EdgeRoute } from '../.
 import type { FlowEmphasis } from '../../../domain/flowEmphasis';
 import { tokens } from '../../app/theme';
 
-/** 選択・ホバーしているノードや線から見た強調のしかた（flowEmphasis）。dim は薄くする線 */
+/** マウスを載せたノードや線から見た強調のしかた（flowEmphasis）。dim は薄くする線 */
 export type EdgeEmphasis = FlowEmphasis | 'dim';
 
 export type DataflowEdgeType = Edge<{ label: string; route?: EdgeRoute; emphasis?: EdgeEmphasis }, 'dataflow'>;
@@ -20,7 +20,7 @@ export function flowColor(emphasis: EdgeEmphasis | undefined, selected: boolean 
 /**
  * データフロー。経路とラベルの位置は routeRfEdges が routeDataflows でまとめて求めたものを使う（SVG 出力と同じ、design.md 9.2）。
  * 両端は図形境界でクリップし、途中のノードは曲線で避ける。ラベルはほかの線・ラベルを避けた位置に、折り返して表示する。
- * 始点には丸印を付ける。選択・ホバーしているノードにつながる線は強調し、ほかは薄くする（toRfEdges）。
+ * 始点には丸印を付ける。マウスを載せたノードにつながる線は強調し、ほかは薄くする（toRfEdges）。
  */
 export const DataflowEdge = memo(function DataflowEdge({ id, data, selected, markerEnd }: EdgeProps<DataflowEdgeType>) {
   const route = data?.route;

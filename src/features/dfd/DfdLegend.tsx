@@ -80,7 +80,7 @@ export function DfdLegendPanel({ featureId }: { featureId: Id }) {
           {legend.unplacedCount > 0 && (
             <Box sx={{ color: tokens.warning, fontSize: 11, mt: '2px' }}>うち DFD 未配置 {legend.unplacedCount} 件</Box>
           )}
-          {/* データフローの見分け方（始点の丸印と、選択・ホバーしたノードから出る線・入る線の色） */}
+          {/* データフローの見分け方（始点の丸印と、マウスを載せたノードから出る線・入る線の色） */}
           <Box sx={{ borderTop: `1px solid ${tokens.border}`, mt: 1, pt: 1, color: tokens.textSecondary, fontSize: 11 }} data-testid="dfd-legend-flows">
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
               <FlowSample color={tokens.borderStrong} />
@@ -88,7 +88,7 @@ export function DfdLegendPanel({ featureId }: { featureId: Id }) {
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
               <FlowSample color={tokens.primary} />
-              <span>選択したノードから出る</span>
+              <span>マウスを載せたノードから出る</span>
               <FlowSample color={tokens.flowIn} />
               <span>入る</span>
             </Box>

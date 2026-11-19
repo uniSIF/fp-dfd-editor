@@ -58,7 +58,7 @@ export function routeRfEdges(edges: DfdEdge[], nodes: DfdRfNode[]): Map<string, 
 
 /**
  * ストアのデータフローを React Flow のエッジにする。経路は routeRfEdges で求めたものを渡す。
- * focus（選択・ホバーしているノードや線。flowEmphasis）があれば、つながる線を強調してほかを薄くする。
+ * focus（マウスを載せたノードや線。flowEmphasis）があれば、つながる線を強調してほかを薄くする。
  */
 export function toRfEdges(edges: DfdEdge[], routes: Map<string, EdgeRoute>, selectedEdgeId: Id | null, focus: FlowFocus | null): DataflowEdgeType[] {
   return edges.map((e) => {
