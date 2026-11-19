@@ -8,7 +8,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { ReactNode } from 'react';
 import { COMPLEXITIES, COMPLEXITY_LABELS, FP_WEIGHTS } from '../../domain/fpTables';
-import { featurePathLabel, featuresInOrder, refName, softwareIdOfFeature } from '../../domain/queries';
+import { appliedCharacteristicPreset, characteristicPresets, featurePathLabel, featuresInOrder, refName, softwareIdOfFeature } from '../../domain/queries';
 import type { Complexity, FpDocument, Id } from '../../domain/types';
 import { useStore } from '../../store';
 import { selectDfdNodes, selectFeatureResult, selectWarnings } from '../../store/selectors';
@@ -424,9 +424,57 @@ function FeatureProperties({ doc, featureId, backLabel }: { doc: FpDocument; fea
         <Box sx={{ '& > div': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr)) !important' } }}>
           <CharacteristicsEditor value={f.characteristics} onChange={(v) => s.updateFeature(featureId, { characteristics: v })} />
         </Box>
-        <Button variant="outlined" color="inherit" sx={{ mt: 2, borderColor: tokens.borderStrong }} onClick={() => s.resetCharacteristics(featureId)}>既定値で上書き</Button>
+        <CharacteristicPresetField featureId={featureId} />
       </Section>
       <ResultSection doc={doc} featureId={featureId} />
     </Panel>
+  );
+}
+
+const STANDARD = '__standard__';
+
+/**
+ * システム特性の既定値の適用（FR-FN-06、FR-PJ-06）。既定値のセットが標準だけなら「既定値で上書き」のボタンだけを出す。
+ * ほかのセットがあれば、セットを選ぶとその値で C1〜C14 を上書きし、適用したセットとして記録する。
+ */
+function CharacteristicPresetField({ featureId }: { featureId: Id }) {
+  const doc = useStore((s) => s.doc);
+  const f = doc.features[featureId];
+  const swId = softwareIdOfFeature(doc, featureId);
+  const settings = swId ? doc.softwares[swId]?.settings : undefined;
+  if (!f || !settings) return null;
+  const presets = characteristicPresets(settings);
+  const applied = appliedCharacteristicPreset(settings, f);
+  const changed = applied.values.some((v, i) => v !== f.characteristics[i]);
+  const button = (
+    <Button variant="outlined" color="inherit" sx={{ borderColor: tokens.borderStrong, flex: 'none' }} disabled={!changed} onClick={() => useStore.getState().resetCharacteristics(featureId)}>
+      既定値で上書き
+    </Button>
+  );
+  if (presets.length === 1) return <Box sx={{ mt: 2 }}>{button}</Box>;
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography component="label" htmlFor="characteristic-preset" sx={{ fontSize: 12, color: tokens.textSecondary, display: 'block', mb: '2px' }}>既定値のセット</Typography>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Select
+          id="characteristic-preset"
+          value={applied.id ?? STANDARD}
+          onChange={(e) => {
+            const id = e.target.value === STANDARD ? null : (e.target.value as string);
+            const s = useStore.getState();
+            s.applyCharacteristicPreset(featureId, id);
+            s.notify(`既定値のセット「${presets.find((p) => p.id === id)?.name ?? ''}」で C1〜C14 を上書きしました。`, 'info');
+          }}
+          sx={{ height: 28, flex: 1, minWidth: 0 }}
+          inputProps={{ 'aria-label': '既定値のセット' }}
+        >
+          {presets.map((p) => <MenuItem key={p.id ?? STANDARD} value={p.id ?? STANDARD} dense>{p.name}</MenuItem>)}
+        </Select>
+        {button}
+      </Box>
+      <Typography sx={{ fontSize: 11, color: tokens.textSecondary, mt: 1 }}>
+        {changed ? `「${applied.name}」の今の値と違います（個別に変更したか、セットの値が変わっています）。` : `「${applied.name}」の値と同じです。`}
+      </Typography>
+    </Box>
   );
 }

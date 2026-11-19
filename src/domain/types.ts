@@ -20,9 +20,19 @@ export interface DevTypeSettings {
   hoursPerFp: number | null;
 }
 
+/** システム特性 C1〜C14 の既定値のセット（標準のほかに登録するもの。FR-PJ-06） */
+export interface CharacteristicPreset {
+  id: Id;
+  name: string;
+  /** C1〜C14。長さ 14、各 0〜5 */
+  values: number[];
+}
+
 export interface SoftwareSettings {
-  /** C1〜C14 の既定値。長さ 14、各 0〜5 */
+  /** C1〜C14 の既定値（標準のセット）。新しい機能にコピーする。長さ 14、各 0〜5 */
   defaultCharacteristics: number[];
+  /** 標準のほかの既定値のセット。機能ごとに選んで適用する。未設定はなし */
+  characteristicPresets?: CharacteristicPreset[];
   newDev: DevTypeSettings;
   modDev: DevTypeSettings;
   /** 社内への工数配分比率 0〜1 */
@@ -64,6 +74,11 @@ export interface Feature {
   devType: DevType;
   /** C1〜C14。長さ 14 */
   characteristics: number[];
+  /**
+   * 最後に適用した既定値のセット（SoftwareSettings.characteristicPresets の id）。未設定・null は標準。
+   * 値は適用した時点のコピーで、あとでセットを変えても characteristics は変わらない
+   */
+  characteristicPresetId?: Id | null;
   vendorId: Id | null;
   /** 説明（任意）。既定は空文字 */
   description: string;

@@ -1653,3 +1653,57 @@ test('データファンクションの下の「所有: ○○」に、データ
   });
   expect(problems).toEqual([]);
 });
+
+test('システム特性の既定値のセットを複数登録し、機能ごとに選んで適用できる（FR-PJ-06）', async ({ page }) => {
+  await openSample(page);
+  const props = page.getByRole('complementary', { name: 'プロパティ' });
+  // セットが標準だけのときは、選択欄を出さない
+  await expect(props.getByLabel('既定値のセット')).toHaveCount(0);
+  await expect(props.getByRole('button', { name: '既定値で上書き' })).toBeVisible();
+
+  // 設定でセットを追加する（標準の値を写したものから始まる）
+  await page.getByRole('button', { name: '設定' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: '既定値のセットを追加' }).click();
+  // 名前がないと保存できない
+  await dialog.getByRole('button', { name: '保存' }).click();
+  await expect(dialog.getByText('セットの名前を入力してください')).toBeVisible();
+  await dialog.getByLabel('既定値のセットの名前 1').fill('バッチ処理');
+  await expect(dialog.getByText('セットの名前を入力してください')).toHaveCount(0);
+  await dialog.getByLabel('バッチ処理 C1 データ通信').click();
+  await page.getByRole('option', { name: '5', exact: true }).click();
+  await dialog.getByLabel('バッチ処理 C6 オンラインデータ入力').click();
+  await page.getByRole('option', { name: '0', exact: true }).click();
+  await shot(page, '38-settings-presets');
+  await dialog.getByRole('button', { name: '保存' }).click();
+  await expect(dialog).toHaveCount(0);
+  // 設定を変えただけでは、機能の値も費用も変わらない
+  await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
+
+  // 顧客登録にだけ「バッチ処理」を適用する
+  await props.getByLabel('既定値のセット').click();
+  await page.getByRole('option', { name: 'バッチ処理' }).click();
+  await expect(props.getByLabel('C1 データ通信')).toHaveText('5');
+  await expect(props.getByLabel('C6 オンラインデータ入力')).toHaveText('0');
+  await expect(props.getByText('「バッチ処理」の値と同じです。')).toBeVisible();
+  await shot(page, '39-feature-preset');
+  // ほかの機能は標準のまま
+  await page.getByRole('treeitem', { name: '顧客検索', exact: true }).click();
+  await expect(props.getByLabel('既定値のセット')).toHaveText('標準');
+  await expect(props.getByLabel('C1 データ通信')).toHaveText('3');
+
+  // 個別に変えると違いを示し、「既定値で上書き」でセットの値に戻る
+  await page.getByRole('treeitem', { name: '顧客登録', exact: true }).click();
+  await props.getByLabel('C1 データ通信').click();
+  await page.getByRole('option', { name: '2', exact: true }).click();
+  await expect(props.getByText(/「バッチ処理」の今の値と違います/)).toBeVisible();
+  await props.getByRole('button', { name: '既定値で上書き' }).click();
+  await expect(props.getByLabel('C1 データ通信')).toHaveText('5');
+
+  // セットを削除しても、適用済みの機能の値は変わらず、選択は標準に戻る
+  await page.getByRole('button', { name: '設定' }).click();
+  await dialog.getByRole('button', { name: 'バッチ処理 を削除' }).click();
+  await dialog.getByRole('button', { name: '保存' }).click();
+  await expect(props.getByLabel('既定値のセット')).toHaveCount(0);
+  await expect(props.getByLabel('C1 データ通信')).toHaveText('5');
+});

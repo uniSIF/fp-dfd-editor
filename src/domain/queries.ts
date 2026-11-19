@@ -1,4 +1,4 @@
-import type { Category1, Category2, DataFunction, Feature, FpDocument, Id, NodeRefType, Software } from './types';
+import type { Category1, Category2, DataFunction, Feature, FpDocument, Id, NodeRefType, Software, SoftwareSettings } from './types';
 
 export interface FeaturePath {
   software: Software;
@@ -15,6 +15,22 @@ export function getFeaturePath(doc: FpDocument, featureId: Id): FeaturePath | nu
   const software = category1 && doc.softwares[category1.softwareId];
   if (!category2 || !category1 || !software) return null;
   return { software, category1, category2, feature };
+}
+
+/** 標準のセットの表示名 */
+export const STANDARD_PRESET_NAME = '標準';
+
+/**
+ * システム特性の既定値のセットを、標準（id は null）を先頭にして列挙する（FR-PJ-06）。
+ */
+export function characteristicPresets(settings: SoftwareSettings): { id: Id | null; name: string; values: number[] }[] {
+  return [{ id: null, name: STANDARD_PRESET_NAME, values: settings.defaultCharacteristics }, ...(settings.characteristicPresets ?? [])];
+}
+
+/** 機能に最後に適用した既定値のセット。削除されたセットを指していれば標準 */
+export function appliedCharacteristicPreset(settings: SoftwareSettings, feature: Feature): { id: Id | null; name: string; values: number[] } {
+  const all = characteristicPresets(settings);
+  return all.find((p) => p.id !== null && p.id === feature.characteristicPresetId) ?? all[0];
 }
 
 export function softwareIdOfFeature(doc: FpDocument, featureId: Id): Id | null {

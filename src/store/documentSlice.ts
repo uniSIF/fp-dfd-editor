@@ -3,7 +3,7 @@ import { canConnect, canConnectNodes, canPlaceMultiple, ruleKindOf } from '../do
 import { findFreePosition, nodeSize } from '../domain/dfdGeometry';
 import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
-import { refName, softwareIdOfFeature } from '../domain/queries';
+import { appliedCharacteristicPreset, characteristicPresets, refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
 import type { DataFunctionKind, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
@@ -256,6 +256,12 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
     applySoftwareSettings: (softwareId, { settings, vendors, backupSettings }) =>
       mutate((d) => {
         const sw = d.softwares[softwareId];
+        // 削除した既定値のセットを適用していた機能は、標準の適用に戻す（値はコピーなので変えない）
+        const presetIds = new Set((settings.characteristicPresets ?? []).map((p) => p.id));
+        for (const p of sw.settings.characteristicPresets ?? []) {
+          if (presetIds.has(p.id)) continue;
+          for (const f of Object.values(d.features)) if (f.characteristicPresetId === p.id) f.characteristicPresetId = null;
+        }
         sw.settings = settings;
         d.backupSettings = backupSettings;
         const keep = new Set(vendors.filter((v) => v.id).map((v) => v.id!));
@@ -375,8 +381,16 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
     },
     resetCharacteristics: (id) =>
       mutate((d) => {
-        const swId = requireSoftwareId(d, id);
-        d.features[id].characteristics = [...d.softwares[swId].settings.defaultCharacteristics];
+        const f = d.features[id];
+        f.characteristics = [...appliedCharacteristicPreset(d.softwares[requireSoftwareId(d, id)].settings, f).values];
+      }),
+    applyCharacteristicPreset: (id, presetId) =>
+      mutate((d) => {
+        const f = d.features[id];
+        const preset = characteristicPresets(d.softwares[requireSoftwareId(d, id)].settings).find((p) => p.id === presetId);
+        if (!preset) return;
+        f.characteristics = [...preset.values];
+        f.characteristicPresetId = preset.id;
       }),
 
     addDataFunction: ({ featureId, name, kind, complexity, description = '', place }) => {

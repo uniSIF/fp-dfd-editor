@@ -90,7 +90,10 @@ export interface DocumentSlice {
   addVendor: (softwareId: Id, name: string, rate: number) => Id;
   updateVendor: (id: Id, patch: { name?: string; rate?: number }) => void;
   removeVendor: (id: Id) => void;
-  /** 設定ダイアログの保存（1 履歴）。vendors に無い既存業者は削除する */
+  /**
+   * 設定ダイアログの保存（1 履歴）。vendors に無い既存業者は削除する。
+   * 削除した既定値のセット（settings.characteristicPresets に無いもの）を適用していた機能は、標準の適用に戻す（C1〜C14 は変えない）
+   */
   applySoftwareSettings: (
     softwareId: Id,
     p: { settings: SoftwareSettings; vendors: { id?: Id; name: string; rate: number }[]; backupSettings: BackupSettings },
@@ -113,7 +116,10 @@ export interface DocumentSlice {
   ) => void;
   removeFeature: (id: Id, dataFunctions?: DataFunctionDisposition) => void;
   moveFeature: (id: Id, category2Id: Id, newIndex: number) => void;
+  /** 最後に適用した既定値のセット（なければ標準）の値で、C1〜C14 を上書きする */
   resetCharacteristics: (id: Id) => void;
+  /** 既定値のセット（null は標準）の値を C1〜C14 にコピーし、適用したセットとして記録する（FR-PJ-06） */
+  applyCharacteristicPreset: (id: Id, presetId: Id | null) => void;
 
   // ファンクション
   addDataFunction: (p: { featureId: Id; name: string; kind: DataFunctionKind; complexity: Complexity; description?: string; place?: PlaceOption }) => Id;

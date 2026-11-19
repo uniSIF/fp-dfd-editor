@@ -16,6 +16,7 @@ const software = z.object({
   category1Ids: z.array(id),
   settings: z.object({
     defaultCharacteristics: characteristics,
+    characteristicPresets: z.array(z.object({ id, name: z.string(), values: characteristics })).optional(),
     newDev: devTypeSettings,
     modDev: devTypeSettings,
     inHouseRatio: z.number().min(0).max(1),
@@ -42,6 +43,7 @@ const feature = z.object({
   name: z.string(),
   devType: z.enum(['new', 'modification']),
   characteristics,
+  characteristicPresetId: id.nullable().optional(),
   vendorId: id.nullable(),
   description: z.string().default(''),
   dfd: z.object({ nodes: z.array(dfdNode), edges: z.array(dfdEdge) }),

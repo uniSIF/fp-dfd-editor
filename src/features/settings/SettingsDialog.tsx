@@ -12,6 +12,8 @@ import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useState, type ReactNode } from 'react';
+import { newId } from '../../domain/ids';
+import { STANDARD_PRESET_NAME } from '../../domain/queries';
 import type { BackupSettings, Id, SoftwareSettings } from '../../domain/types';
 import { useStore } from '../../store';
 import { tokens } from '../app/theme';
@@ -22,6 +24,13 @@ interface VendorDraft {
   id?: Id;
   name: string;
   rate: string;
+}
+
+/** 標準のほかの、システム特性の既定値のセット（FR-PJ-06） */
+interface PresetDraft {
+  id: Id;
+  name: string;
+  values: number[];
 }
 
 type Errors = Record<string, string>;
@@ -50,6 +59,8 @@ export function SettingsDialog({ softwareId, onClose }: { softwareId: Id; onClos
     generations: String(doc.backupSettings.generations),
   });
   const [chars, setChars] = useState([...st.defaultCharacteristics]);
+  const [presets, setPresets] = useState<PresetDraft[]>((st.characteristicPresets ?? []).map((p) => ({ id: p.id, name: p.name, values: [...p.values] })));
+  const setPreset = (id: Id, patch: Partial<PresetDraft>) => setPresets(presets.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   const [vendors, setVendors] = useState<VendorDraft[]>(
     sw.vendorIds.map((id) => ({ key: id, id, name: doc.vendors[id].name, rate: String(doc.vendors[id].rate) })),
   );
@@ -84,6 +95,13 @@ export function SettingsDialog({ softwareId, onClose }: { softwareId: Id; onClos
       if (r === null || Number.isNaN(r) || r < 0) e[`vr-${v.key}`] = '0 以上の数値';
       return { id: v.id, name: v.name.trim(), rate: r ?? 0 };
     });
+    const names = new Set([STANDARD_PRESET_NAME]);
+    for (const p of presets) {
+      const name = p.name.trim();
+      if (!name) e[`pn-${p.id}`] = 'セットの名前を入力してください';
+      else if (names.has(name)) e[`pn-${p.id}`] = '同じ名前のセットがあります';
+      names.add(name);
+    }
     setErrors(e);
     if (Object.keys(e).length) {
       // 最初にエラーがあるタブを開く
@@ -97,6 +115,7 @@ export function SettingsDialog({ softwareId, onClose }: { softwareId: Id; onClos
     }
     const settings: SoftwareSettings = {
       defaultCharacteristics: chars,
+      ...(presets.length ? { characteristicPresets: presets.map((p) => ({ id: p.id, name: p.name.trim(), values: p.values })) } : {}),
       newDev: { modificationFactor: newFactor!, hoursPerFp: newHours },
       modDev: { modificationFactor: modFactor!, hoursPerFp: modHours },
       inHouseRatio: ratio! / 100,
@@ -144,9 +163,40 @@ export function SettingsDialog({ softwareId, onClose }: { softwareId: Id; onClos
               {field('rate', '社内の工数単価', '円/H')}
             </Grid2>
             <Heading>
-              システム特性の既定値 <span style={{ fontWeight: 400 }}>（新しい機能に適用されます）</span>
+              システム特性の既定値 <span style={{ fontWeight: 400 }}>（{presets.length ? `「${STANDARD_PRESET_NAME}」が新しい機能に適用されます。ほかのセットは、機能のプロパティで選んで適用します` : '新しい機能に適用されます'}）</span>
             </Heading>
+            {presets.length > 0 && <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>{STANDARD_PRESET_NAME}</Typography>}
             <CharacteristicsEditor value={chars} onChange={setChars} />
+            {presets.map((p, i) => {
+              const used = Object.values(doc.features).filter((x) => x.characteristicPresetId === p.id).length;
+              return (
+                <Box key={p.id} sx={{ mt: 3, pt: 3, borderTop: `1px solid ${tokens.border}` }} data-testid="characteristic-preset">
+                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', mb: 2 }}>
+                    <TextField
+                      placeholder="セットの名前（例: バッチ処理）" value={p.name} error={!!errors[`pn-${p.id}`]} helperText={errors[`pn-${p.id}`]}
+                      onChange={(e) => {
+                        setPreset(p.id, { name: e.target.value });
+                        // 入力し直したら、前回の保存時のエラーは消す
+                        if (errors[`pn-${p.id}`]) setErrors(Object.fromEntries(Object.entries(errors).filter(([k]) => k !== `pn-${p.id}`)));
+                      }}
+                      sx={{ flex: 1 }} slotProps={{ htmlInput: { 'aria-label': `既定値のセットの名前 ${i + 1}` } }}
+                    />
+                    <IconButton
+                      aria-label={`${p.name || '既定値のセット'} を削除`}
+                      title={used ? `${used} 件の機能に適用済み。削除しても、それらの機能の C1〜C14 は変わりません` : '削除'}
+                      onClick={() => setPresets(presets.filter((x) => x.id !== p.id))}
+                    >
+                      <CloseIcon sx={{ fontSize: 16, color: used ? tokens.warning : undefined }} />
+                    </IconButton>
+                  </Box>
+                  <CharacteristicsEditor value={p.values} onChange={(v) => setPreset(p.id, { values: v })} group={{ key: p.id, name: p.name.trim() || `セット ${i + 1}` }} />
+                </Box>
+              );
+            })}
+            <Button startIcon={<AddIcon />} sx={{ mt: 2 }} onClick={() => setPresets([...presets, { id: newId(), name: '', values: [...chars] }])}>既定値のセットを追加</Button>
+            <Typography sx={{ fontSize: 12, color: tokens.textSecondary, mt: 1 }}>
+              セットの値を変えても、適用済みの機能の C1〜C14 は変わりません（適用した時点の値をコピーします）。
+            </Typography>
           </>
         )}
         {tab === 'vendors' && (

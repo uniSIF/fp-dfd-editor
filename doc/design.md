@@ -189,7 +189,8 @@ export interface DevTypeSettings {
 }
 
 export interface SoftwareSettings {
-  defaultCharacteristics: number[]; // 長さ14、各 0〜5
+  defaultCharacteristics: number[]; // 長さ14、各 0〜5。標準のセット
+  characteristicPresets?: { id: Id; name: string; values: number[] }[]; // 標準のほかの既定値のセット [FR-PJ-06]
   newDev: DevTypeSettings;
   modDev: DevTypeSettings;
   inHouseRatio: number; // 0〜1
@@ -205,6 +206,7 @@ export interface Feature {
   name: string;
   devType: DevType;
   characteristics: number[]; // 長さ14
+  characteristicPresetId?: Id | null; // 最後に適用した既定値のセット。未設定・null は標準 [FR-PJ-06]
   vendorId: Id | null;
   description: string; // 説明（任意）。既定は空文字
   dfd: Dfd;
@@ -335,7 +337,8 @@ export const useStore = create<DocumentSlice & UiSlice>()(
 | 機能 | `updateFeature` | id, Partial\<Feature\> | 名称・開発区分・C1〜C14・業者・説明 |
 | 機能 | `removeFeature` | id | 所有 DF は `ownerFeatureId=null`、TF / NCP は削除、他機能の DFD にある参照は維持 [FR-CT-04] |
 | 機能 | `moveFeature` | id, category2Id, newIndex | [FR-CT-02] |
-| 機能 | `resetCharacteristics` | id | 既定値で上書き [FR-FN-06] |
+| 機能 | `resetCharacteristics` | id | 適用した既定値のセット（なければ標準）の今の値で上書き [FR-FN-06] |
+| 機能 | `applyCharacteristicPreset` | id, presetId（null は標準） | セットの値を C1〜C14 にコピーし、`characteristicPresetId` に記録する。値はコピーなので、あとでセットを変えても機能は変わらない。セットの列挙は `domain/queries.ts` の `characteristicPresets`、適用中のセットは `appliedCharacteristicPreset`。設定の保存（`applySoftwareSettings`）で削除されたセットを指す機能は、記録を null に戻す。どちらの項目も任意で、スキーマのバージョンは上げない [FR-PJ-06] |
 | DF | `addDataFunction` | featureId, name, kind, complexity, placeOnDfd | 所有機能＝featureId。`placeOnDfd` 時はノードも追加 [FR-FN-03] |
 | DF | `updateDataFunction` | id, Partial | 所有機能変更・説明を含む。TF / NCP / EE の `update*` も同様に説明を受け付ける |
 | DF | `removeDataFunction` | id | 全 DFD からノード・接続エッジも除去。他機能が参照中なら拒否 [FR-DF-08] |
@@ -797,10 +800,10 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options?: { padding?
 - 同じ 2 つのノードを結ぶデータフローが複数ある（往復など）ときは、`edgeBias` で ±18px ずつ反対側に膨らませて重ならないようにする。
 - 端の分散 [FR-DF-25]: 交差を減らす引き直しのあと、ラベルを置く前に、同じノードの縁の近い位置につながる線の端を、縁に沿って 12px（`MIN_END_GAP`）ずつ離す（`spreadEnds`）。縁の上の並び順は変えず、近すぎる端の集まりを、集まりの中心を動かさずに等間隔に広げる。線が多く一周に収まらないノードでは、間隔を「周の長さ / 本数」まで詰める。縁に沿った距離は、縁を角度で 72 等分した点から求める。経路の制御点は変えずに端点だけを差し替え、ずらしたことでほかのノードを通るようになる線は元のままにする。十分離れている端は動かさない。
 - 始点の丸印 [FR-DF-25]: 始点から線に沿って 4px 進んだ位置（`EdgeRoute.dot`）に、半径 3px（`EDGE_START_DOT`）の丸を線と同じ色で描く。ノードの縁に半分隠れないようにするため。SVG では `<circle data-edge-dot>`。凡例に見本を描く。
+- 所有の補記: 参照として置いたデータファンクションの下の「所有: ○○」は、文字の矩形（`ownerCaptionBox`。ノードの下 2px、高さ 15px、幅は文字数から概算）を `routeDataflows` の `captions` に渡し、ノードと同じ障害物として扱う。ほかの線・ラベルに加えて、そのデータファンクション自身につながる線も補記を避けて曲げる。端点はノードの縁のままにする。画面（`routeRfEdges`）と SVG で同じ矩形を使う。
 - 曲線上の点を約 8px おきに取り、点の外接矩形と重なるノードだけを調べる。
 - ラベルは、ほかのデータフローの線・ほかのラベル・ノード・システム境界の線に重ならない位置を探す。候補は線の中間点から両端へ 0.06 刻み（0.14〜0.86）で、各位置について線の上、線の両脇（ラベルの矩形が線から離れる分だけ法線方向にずらす）の順に試す。線の上に置くと、線が短くて矢じりや線のほとんどが隠れる（ラベルの外に見える線が始点側 16px・終点側 32px 未満）ときは、ほかの線に重なるより悪いとみなし、線の脇を優先する。見つからなければ重なりが最も少ない位置にする。大きいラベルから順に置く。
 - ほかの線は約 12px おきの点を結ぶ折れ線にし、8 区間ごとの外接矩形で絞り込んでから、線分と矩形の交差で判定する。
-- 所有の補記: 参照として置いたデータファンクションの下の「所有: ○○」は、文字の矩形（`ownerCaptionBox`。ノードの下 2px、高さ 15px、幅は文字数から概算）を `routeDataflows` の `captions` に渡し、ノードと同じ障害物として扱う。ほかの線・ラベルに加えて、そのデータファンクション自身につながる線も補記を避けて曲げる。端点はノードの縁のままにする。画面（`routeRfEdges`）と SVG で同じ矩形を使う。
 - 経路とラベルの計算は 20 ノード・30 データフローで約 7ms、100 ノード・150 データフローで約 180ms（単体テストで 500ms 以内を確認）。
 - ラベルの折り返し（`edgeLabelLines`）は 12 文字幅以内で行の幅をそろえ、句読点・閉じ括弧・中点を行頭に、開き括弧を行末に置かない。
 - 画面ではノードの移動（ドラッグ中を含む）に追従して計算し直す（`DfdCanvas` のローカルのノード位置と境界から `routeRfEdges` で求める）。
@@ -1004,10 +1007,10 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | 自動整列の交差の削減（FR-DF-12） | dagre の結果の順をそのまま使う | 並べる向きを外部エンティティ → プロセス → データファンクションにそろえ、段の中の順を重心法と局所探索で変える。外部エンティティと EIF はつながる要素に寄せる。線は交わりが減るように引き直す | データフローの線が交差して読みにくいことがあったため |
 | 短いデータフローのラベル（FR-DF-12） | 他と重ならなければ常に線の上に置く | 線の上に置くと矢じりや線のほとんどが隠れるときは線の脇に置く。自動整列でラベルの両側に空ける幅を 28px から 36px に広げる | 短い矢印がラベルに隠れて見えなくなることがあったため |
 | データフローの出どころの見分け（FR-DF-25） | 線はすべて同じ色で、端はノードの中心に向かう位置。強調は線を選んだときだけ | 始点に丸印を付け、同じノードの近い位置につながる端を縁に沿って離す（画面・SVG）。ノードや線にマウスを載せると、つながる線を強調してほかを薄くし、出る線と入る線を色で分ける（画面）。経路の計算は強調と分け、選択・ホバーでは計算し直さない | データフローが増えると、どの線がどのノードから出ているのか分かりにくかったため |
+| 所有の補記とデータフロー（FR-DF-12） | 補記は経路計算の対象外 | 補記の矩形を障害物として渡し、線とラベルを重ねない。凡例に行を足した分、全体表示の上側の余白を 264px に広げ、表示操作の全体表示ボタンにも同じ余白を使う | データファンクションの下の「所有: ○○」にデータフローの矢印が重なって読めないことがあったため |
 | ツリーのドラッグ並べ替え（FR-CT-02） | 上下移動のメニューのみ | HTML5 のドラッグ＆ドロップで実装（`features/tree/FeatureTree.tsx` の `planDrop`）。`moveCategory` に移動先の大分類（`newParentId`）を追加し、中分類を別の大分類へ移せるようにした。`moveCategory`・`moveFeature` はソフトウェアをまたぐ移動と並びが変わらない移動を事前に判定し、履歴を積まない | データファンクションや外注業者がソフトウェア単位のため、ソフトウェア間の移動は扱わない |
 | ファンクション表の下部 | 機能の説明・開発区分・外注業者・C1〜C14 を表の下に表示 | 表の下には置かず、右側の PropertyPanel（機能のプロパティ）に一本化 | 同じ内容が右側パネルにもあり、二重表示で表の表示領域が狭くなっていたため |
 | 左ペインの幅（ui-design.md 2.1） | 境界ドラッグでリサイズ（未実装だった） | `features/app/PaneResizer.tsx`。CSS Grid の列幅を状態で持ち、境界に重ねたつまみ（`role="separator"`）のポインタ操作で変える。幅は localStorage に保持し、ウィンドウを狭めたときは中央ペインの最小幅を保つよう詰める。右ペインは固定のまま | 長い機能名が見切れるため |
-| 所有の補記とデータフロー（FR-DF-12） | 補記は経路計算の対象外 | 補記の矩形を障害物として渡し、線とラベルを重ねない。凡例に行を足した分、全体表示の上側の余白を 264px に広げ、表示操作の全体表示ボタンにも同じ余白を使う | データファンクションの下の「所有: ○○」にデータフローの矢印が重なって読めないことがあったため |
 | DFD のコピーと文言置換（FR-DF-20、FR-FN-17） | なし（要件追加） | `copyDfdToFeature` は 1 回の `mutate` でノード・実体・エッジを作り、作った実体とエッジの ID を返す。データファンクションは 1 つの DFD に 1 回までなので、コピー先に配置済みなら既存ノードへつなぐ。置換の候補は `planTextReplacements`（純粋関数）で作り、`applyTextReplacements` で 1 履歴にまとめて反映する。ダイアログの開閉はツリーのメニューからも開けるよう UI スライス（`copyDfd`、`replaceText`）で持つ | 似た機能の DFD を使い回し、重複した名前をその場で直せるようにするため |
 | 既存を複製して配置（FR-DF-21） | なし（要件追加） | 新しいストアのアクションは作らず、参照ダイアログで選んだ要素の内容を `AddRequest.duplicateOf` に入れて既存の追加ダイアログを開く。名称の編集と同名警告はファンクション表の「複製」と同じ処理を通る | 参照と違い名称を変えて別の要素として扱いたい場合に、追加の手間を減らすため |
 | 既存の要素への参照に置き換え（FR-DF-22） | なし（要件追加） | `replaceWithReference` はノードの `refId` を付け替える（ノード ID とデータフローは保つ）。データファンクションは 1 DFD に 1 回までなので、置き換え先が配置済みならデータフローをそのノードへ付け替え、自己ループと同じ向き・ラベルの重複を捨ててから元のノードを消す。元の要素の削除は、置き換え後にどの DFD にも配置されていない場合だけ行う | 別の番号で重複して追加した要素を、DFD を描き直さずにまとめるため |

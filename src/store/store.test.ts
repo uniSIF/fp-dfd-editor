@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseDocumentJson } from '../domain/migrations';
 import { sampleDocument } from '../domain/sampleDocument';
 import { createAppStore, redo, undo } from './index';
 import { selectFeatureFunctions, selectFeatureResult, selectIsDirty } from './selectors';
@@ -482,5 +483,55 @@ describe('store', () => {
     undo(store);
     store.getState().removeCategory('c2a');
     expect(store.getState().doc.dataFunctions.df1.ownerFeatureId).toBeNull();
+  });
+  it('システム特性の既定値のセットを機能に適用する。セットをあとで変えても機能の値は変わらない（FR-PJ-06）', () => {
+    const store = setup();
+    const sw = () => store.getState().doc.softwares.sw1;
+    const fReg = () => store.getState().doc.features.fReg;
+    const batch = { id: 'pBatch', name: 'バッチ処理', values: Array(14).fill(1) };
+    const backupSettings = store.getState().doc.backupSettings;
+    const vendors = sw().vendorIds.map((id) => ({ id, name: store.getState().doc.vendors[id].name, rate: store.getState().doc.vendors[id].rate }));
+    const standard = [...sw().settings.defaultCharacteristics];
+    store.getState().applySoftwareSettings('sw1', { settings: { ...sw().settings, characteristicPresets: [batch] }, vendors, backupSettings });
+
+    // 適用するとセットの値をコピーし、適用したセットを記録する。1 回の Undo で戻る
+    store.getState().applyCharacteristicPreset('fReg', 'pBatch');
+    expect(fReg().characteristics).toEqual(batch.values);
+    expect(fReg().characteristicPresetId).toBe('pBatch');
+    undo(store);
+    expect(fReg().characteristics).toEqual(standard);
+    expect(fReg().characteristicPresetId).toBeUndefined();
+    redo(store);
+
+    // 保存ファイルにも残る
+    const saved = parseDocumentJson(JSON.stringify(store.getState().doc));
+    expect(saved.ok && saved.value.softwares.sw1.settings.characteristicPresets).toEqual([batch]);
+    expect(saved.ok && saved.value.features.fReg.characteristicPresetId).toBe('pBatch');
+
+    // 新しい機能には標準をコピーする
+    const id = store.getState().addFeature(fReg().category2Id, '新しい機能');
+    expect(store.getState().doc.features[id].characteristics).toEqual(standard);
+
+    // セットの値を変えても、適用済みの機能は変わらない。「既定値で上書き」で今の値を取り込む
+    const changed = { ...batch, values: Array(14).fill(4) };
+    store.getState().applySoftwareSettings('sw1', { settings: { ...sw().settings, characteristicPresets: [changed] }, vendors, backupSettings });
+    expect(fReg().characteristics).toEqual(batch.values);
+    store.getState().resetCharacteristics('fReg');
+    expect(fReg().characteristics).toEqual(changed.values);
+
+    // 標準に戻せる。存在しないセットは適用しない
+    store.getState().applyCharacteristicPreset('fReg', 'gone');
+    expect(fReg().characteristics).toEqual(changed.values);
+    store.getState().applyCharacteristicPreset('fReg', null);
+    expect(fReg().characteristics).toEqual(standard);
+    expect(fReg().characteristicPresetId).toBeNull();
+
+    // 適用していたセットを削除すると、標準の適用に戻る（値はそのまま）
+    store.getState().applyCharacteristicPreset('fReg', 'pBatch');
+    store.getState().applySoftwareSettings('sw1', { settings: { ...sw().settings, characteristicPresets: [] }, vendors, backupSettings });
+    expect(fReg().characteristicPresetId).toBeNull();
+    expect(fReg().characteristics).toEqual(changed.values);
+    store.getState().resetCharacteristics('fReg');
+    expect(fReg().characteristics).toEqual(standard);
   });
 });
