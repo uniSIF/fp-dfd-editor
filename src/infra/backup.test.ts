@@ -26,7 +26,27 @@ describe('backup（FR-SV-03〜05、FR-SV-09）', () => {
     expect(readLatestBackup()).toBeNull();
   });
 
-  it('容量超過時は最古を消して再試行し、それでも失敗なら quota を返す', () => {
+  it('容量が足りないときは、書き込めるまで古い世代から削除して最新を残す', () => {
+    const doc = sampleDocument();
+    for (let i = 0; i < 4; i++) writeBackup(doc, 10, new Date(Date.UTC(2026, 0, 1 + i)));
+    // 4 世代あるうち、2 世代まで減らさないと新しい世代が入らない保存領域
+    const real = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k.startsWith('fpdfd.backup.2') && listBackups().length > 2) throw new DOMException('full', 'QuotaExceededError');
+      real.call(this, k, v);
+    });
+    doc.project.name = '最新';
+    const r = writeBackup(doc, 10, new Date(Date.UTC(2026, 0, 9)));
+    spy.mockRestore();
+    expect(r).toEqual({ ok: true, value: '2026-01-09T00:00:00.000Z', dropped: 2 });
+    expect(listBackups().map((b) => b.iso)).toEqual(['2026-01-09T00:00:00.000Z', '2026-01-04T00:00:00.000Z', '2026-01-03T00:00:00.000Z']);
+    const latest = readLatestBackup();
+    expect(latest?.ok && latest.value.project.name).toBe('最新');
+    // 足りていれば削除しない
+    expect(writeBackup(doc, 10, new Date(Date.UTC(2026, 0, 10))).dropped).toBe(0);
+  });
+
+  it('すべての世代を削除しても書き込めなければ quota を返す', () => {
     const doc = sampleDocument();
     writeBackup(doc, 10, new Date(Date.UTC(2026, 0, 1)));
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {

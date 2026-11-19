@@ -48,8 +48,12 @@ function isQuotaError(e: unknown): boolean {
   return e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22 || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
 }
 
-/** バックアップを 1 世代書き込み、generations を超えた古い世代を削除する */
-export function writeBackup(doc: FpDocument, generations: number, now = new Date()): Result<string, BackupWriteError> {
+/**
+ * バックアップを 1 世代書き込み、generations を超えた古い世代を削除する。
+ * 保存領域が足りないときは、書き込めるまで古い世代から削除する（最新の内容を残すことを優先する）。
+ * 削除した世代の数を dropped に返す。すべて削除しても書き込めなければ quota。
+ */
+export function writeBackup(doc: FpDocument, generations: number, now = new Date()): Result<string, BackupWriteError> & { dropped?: number } {
   const ls = storage();
   if (!ls) return { ok: false, error: 'unavailable' };
   let iso = now.toISOString();
@@ -57,20 +61,20 @@ export function writeBackup(doc: FpDocument, generations: number, now = new Date
   while (index.includes(iso)) iso = new Date(Date.parse(iso) + 1).toISOString();
   const data = JSON.stringify(doc);
 
-  const tryWrite = (): boolean => {
-    ls.setItem(entryKey(iso), data);
-    return true;
-  };
-  try {
-    tryWrite();
-  } catch (e) {
-    if (!isQuotaError(e)) return { ok: false, error: 'unavailable' };
-    // 最古の世代を 1 つ削除して 1 回だけ再試行
-    const oldest = index.shift();
-    if (oldest) ls.removeItem(entryKey(oldest));
+  let dropped = 0;
+  for (;;) {
     try {
-      tryWrite();
-    } catch {
+      ls.setItem(entryKey(iso), data);
+      break;
+    } catch (e) {
+      if (!isQuotaError(e)) return { ok: false, error: 'unavailable' };
+      // ドキュメントが大きいと、1 世代を消しただけでは入らないことがある。入るまで古い世代から消す
+      const oldest = index.shift();
+      if (oldest) {
+        ls.removeItem(entryKey(oldest));
+        dropped++;
+        continue;
+      }
       try {
         ls.setItem(INDEX_KEY, JSON.stringify(index));
       } catch {
@@ -89,7 +93,7 @@ export function writeBackup(doc: FpDocument, generations: number, now = new Date
   } catch {
     return { ok: false, error: 'quota' };
   }
-  return { ok: true, value: iso };
+  return { ok: true, value: iso, dropped };
 }
 
 /** 新しい順のバックアップ一覧 */

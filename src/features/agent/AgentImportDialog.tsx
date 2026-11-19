@@ -9,9 +9,11 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { featurePlanHasChanges, parseExchange, planHasChanges, planImport, type FeaturePlan, type ImportPlan } from '../../domain/exchange';
+import { buildFixInstruction, featurePlanHasChanges, parseExchange, planHasChanges, planImport, type FeaturePlan, type ImportPlan } from '../../domain/exchange';
 import type { Id, NodeRefType } from '../../domain/types';
+import { copyText } from '../../infra/clipboard';
 import { useStore } from '../../store';
+import { repairSummary } from '../app/commands';
 import { tokens } from '../app/theme';
 import { ellipsis } from '../common/ellipsis';
 import { WarningIcon } from '../common/WarningIcon';
@@ -43,6 +45,8 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
     () => (parsed?.ok ? planImport(doc, softwareId, parsed.data, { removeMissing }) : null),
     [doc, softwareId, parsed, removeMissing],
   );
+  // エージェントへの修正指示（取り込めない点と、参照・所有の扱いを直してもらったほうがよい点）
+  const fixInstruction = useMemo(() => buildFixInstruction(plan, parsed && !parsed.ok ? [parsed.message] : []), [plan, parsed]);
   const sw = doc.softwares[softwareId];
   if (!sw) return null;
 
@@ -106,7 +110,9 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
     const first = plan.features.findIndex((f) => featurePlanHasChanges(f, plan));
     if (first >= 0) s.selectFeature(r.featureIds[first]);
     s.setActiveTab('dfd');
-    s.notify(`Copilot の出力を取り込みました（機能 ${plan.features.length} 件${newFeatures ? `・うち新しい機能 ${newFeatures} 件` : ''}・新しい要素 ${r.created} 件）`, 'success');
+    const done = `Copilot の出力を取り込みました（機能 ${plan.features.length} 件${newFeatures ? `・うち新しい機能 ${newFeatures} 件` : ''}・新しい要素 ${r.created} 件）`;
+    if (r.repairs.length) s.notify(`${done}。${repairSummary(r.repairs)}`, 'info');
+    else s.notify(done, 'success');
     onClose();
   };
 
@@ -176,6 +182,31 @@ export function AgentImportDialog({ softwareId, onClose }: { softwareId: Id; onC
                 {plan.warnings.map((w) => <Notice key={w} tone="warning">{w}</Notice>)}
               </Box>
             )}
+          </Box>
+        )}
+
+        {fixInstruction && (
+          <Box data-testid="agent-fix-instruction">
+            <Box sx={{ display: 'flex', alignItems: 'flex-end', mb: '2px' }}>
+              <Typography component="div" sx={{ fontSize: 12, color: tokens.textSecondary, flex: 1 }}>
+                Copilot への修正指示
+                {plan && !plan.errors.length ? '（このままでも取り込めますが、直してもらうと所有機能が意図どおりになります）' : '（コピーして Copilot に送り、直した出力をもう一度貼り付けてください）'}
+              </Typography>
+              <Button
+                size="small"
+                onClick={async () => {
+                  const s = useStore.getState();
+                  if (await copyText(fixInstruction)) s.notify('修正指示をコピーしました', 'success');
+                  else s.notify('修正指示をコピーできませんでした。欄の文を選んでコピーしてください', 'error');
+                }}
+              >
+                修正指示をコピー
+              </Button>
+            </Box>
+            <TextField
+              fullWidth multiline minRows={3} maxRows={8} value={fixInstruction}
+              slotProps={{ htmlInput: { readOnly: true, 'aria-label': 'Copilot への修正指示', style: { fontSize: 12 } } }}
+            />
           </Box>
         )}
 

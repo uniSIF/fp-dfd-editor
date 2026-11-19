@@ -334,6 +334,11 @@ export interface FeaturePlan {
 export interface ImportPlan {
   errors: string[];
   warnings: string[];
+  /**
+   * 取り込めるが、参照や所有の扱いをエージェントに直してもらったほうがよい点（エージェントへの修正指示に入れる文）。
+   * 取り込み側では参照が壊れないように扱い、その内容は warnings に出す
+   */
+  fixes: string[];
   /** 新しく作る分類 */
   newCategories: { category1: string; category2: string; newCategory1: boolean }[];
   /** 新しく作る要素。TF・非計上プロセスは featureKey の機能に属し、DF は featureKey の機能が所有する */
@@ -361,7 +366,7 @@ const typeLabel = (t: NodeRefType) => LIST_TYPES.find((x) => x[1] === t)![2];
  * removeMissing なら、出力に含まれる既存の機能について、出力にない要素・データフローを削除対象にする。
  */
 export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, options: { removeMissing: boolean }): ImportPlan {
-  const plan: ImportPlan = { errors: [], warnings: [], newCategories: [], creates: [], updates: [], ownerChanges: [], features: [] };
+  const plan: ImportPlan = { errors: [], warnings: [], fixes: [], newCategories: [], creates: [], updates: [], ownerChanges: [], features: [] };
   const sw = doc.softwares[softwareId];
   if (!sw) {
     plan.errors.push('取り込み先のソフトウェアが見つかりません。');
@@ -737,8 +742,41 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       for (const r of fp.removals) if (r.refType === 'dataFunction' && r.refId === refId && fp.featureId !== toFeatureId) r.mode = 'unplace';
     }
   }
+  // 所有機能の dfd から外したデータファンクションを、出力のほかの機能が使っている場合。
+  // 実体を削除すると、ほかの機能の DFD に実体のないノードが残る（参照が壊れる）ので、削除せず DFD から外すだけにする
+  const ownerMoved = new Set(plan.ownerChanges.map((o) => o.refId));
+  for (const fp of plan.features) {
+    for (const r of fp.removals) {
+      if (r.refType !== 'dataFunction' || r.mode !== 'delete' || ownerMoved.has(r.refId)) continue;
+      const users = plan.features.filter((x) => x !== fp && x.elementKeys.includes(r.key));
+      if (!users.length) continue;
+      r.mode = 'unplace';
+      const names = users.map((u) => `「${u.name}」`).join('');
+      plan.warnings.push(`データファンクション「${r.key} ${r.name}」は機能「${fp.name}」の所有ですが、出力では機能「${fp.name}」の dfd になく、機能${names}で使われています。削除せずに機能「${fp.name}」の DFD から外し、所有機能は「${fp.name}」のままにします。`);
+      plan.fixes.push(`データファンクション「${r.key} ${r.name}」は機能「${fp.name}」（key: ${fp.key}）の所有ですが、機能「${fp.name}」の dfd から消え、機能${names}の dfd にあります。所有を移すなら、機能${names}の dataFunctions で owner を所有させる機能の key にしてください（例: "owner": "${users[0].key}"）。機能「${fp.name}」の所有のままにするなら、機能「${fp.name}」の dfd の dataFunctions にも残してください。`);
+    }
+  }
   if (!plan.errors.length) warnDuplicateNames(doc, softwareId, plan);
   return plan;
+}
+
+/**
+ * エージェント（Copilot）への修正指示（FR-IO-10）。取り込めない点（errors）と、直してもらったほうがよい点（fixes）を箇条書きにする。
+ * JSON として読めないなど、差分を計算する前の問題は extra に渡す。指示することがなければ null。
+ */
+export function buildFixInstruction(plan: ImportPlan | null, extra: string[] = []): string | null {
+  const items = [...extra, ...(plan?.errors ?? []), ...(plan?.fixes ?? [])];
+  if (!items.length) return null;
+  return [
+    `前回の出力（${EXCHANGE_FORMAT} の JSON）には、次の問題があります。指摘した箇所だけを直し、ほかの内容と key は変えずに、JSON 全体をもう一度出力してください。`,
+    '',
+    ...items.map((x) => `- ${x}`),
+    '',
+    '直すときは次を守ってください。',
+    '- dataFlows の from / to には、その機能の dfd の一覧（externalEntities・dataFunctions・transactionFunctions・nonCountedProcesses）にある key だけを書く。',
+    '- 既存の要素・機能の key は、書き出した JSON の key をそのまま使う。新しい要素には、ほかと重ならない新しい key を付ける。',
+    '- ほかの機能が所有するデータファンクションを使うときは、その機能の dfd の dataFunctions にも書き、owner に所有する機能の key を書く。',
+  ].join('\n');
 }
 
 const NAME_GROUPS: { label: string; types: NodeRefType[] }[] = [

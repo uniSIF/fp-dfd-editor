@@ -41,14 +41,20 @@ export function confirmIfDirty(title: string, actionLabel: string, run: () => vo
   });
 }
 
+/** 読み込み・取り込みで壊れた参照を取り除いたことの知らせ（最初の 1 件と件数） */
+export function repairSummary(repairs: string[]): string {
+  return `壊れた参照を ${repairs.length} 件取り除きました（${repairs[0]}${repairs.length > 1 ? ' ほか' : ''}）。`;
+}
+
 export function applyLoaded(doc: FpDocument, message: string): void {
   const s = get();
-  s.loadDocument(doc);
+  const repairs = s.loadDocument(doc);
   useStore.temporal.getState().clear();
   const first = doc.project.softwareIds[0];
-  const firstFeature = first ? featuresInOrder(doc, first)[0] : undefined;
+  const firstFeature = first ? featuresInOrder(get().doc, first)[0] : undefined;
   if (firstFeature) s.selectFeature(firstFeature.id);
-  s.notify(message, 'success');
+  if (repairs.length) s.notify(`${message}。${repairSummary(repairs)}`, 'info');
+  else s.notify(message, 'success');
 }
 
 function reportLoadResult(r: Result<FpDocument, LoadError>, okMessage: string): void {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseDocumentJson } from '../domain/migrations';
 import { sampleDocument } from '../domain/sampleDocument';
 import { createAppStore, redo, undo } from './index';
-import { selectFeatureFunctions, selectFeatureResult, selectIsDirty } from './selectors';
+import { selectDfdNodes, selectFeatureFunctions, selectFeatureResult, selectIsDirty } from './selectors';
 
 function setup() {
   const store = createAppStore(sampleDocument());
@@ -124,6 +124,47 @@ describe('store', () => {
     store.getState().applyLayout('fReg');
     undo(store);
     expect(store.getState().doc.features.fReg.dfd.nodes.map((n) => [n.x, n.y])).toEqual(before);
+  });
+
+  it('Undo のあとに別の変更をしても、保存済み・バックアップ済みと同じ revision にならない', () => {
+    const store = setup();
+    store.getState().renameProject('A');
+    // この版を保存・バックアップした
+    const saved = store.getState().revision;
+    store.getState().markSaved(saved);
+    store.getState().markBackedUp(saved);
+    expect(selectIsDirty(store.getState())).toBe(false);
+    // 1 つ戻して、別の変更をする
+    undo(store);
+    expect(store.getState().doc.project.name).not.toBe('A');
+    store.getState().renameProject('B');
+    expect(store.getState().revision).not.toBe(saved);
+    expect(store.getState().revision).not.toBe(store.getState().backedUpRevision);
+    expect(selectIsDirty(store.getState())).toBe(true);
+    // Undo / Redo でその時点の版に戻れば、保存済みの扱いになる
+    undo(store);
+    redo(store);
+    undo(store);
+    redo(store);
+    expect(store.getState().doc.project.name).toBe('B');
+    store.getState().markSaved(store.getState().revision);
+    undo(store);
+    expect(selectIsDirty(store.getState())).toBe(true);
+    redo(store);
+    expect(selectIsDirty(store.getState())).toBe(false);
+  });
+
+  it('実体のないノードが残っていても、DFD の表示用の読み出しで例外にならない', () => {
+    const doc = JSON.parse(JSON.stringify(sampleDocument())) as ReturnType<typeof sampleDocument>;
+    delete doc.dataFunctions.df1;
+    delete doc.transactionFunctions.tf1;
+    const view = selectDfdNodes(doc, 'fReg');
+    expect(view.find((n) => n.refId === 'df1')).toMatchObject({ name: '', isReference: true, ownerName: '' });
+    expect(view.find((n) => n.refId === 'tf1')).toMatchObject({ name: '', kind: null });
+    // 読み込むと、実体のないノードは取り除かれる
+    const store = setup();
+    expect(store.getState().loadDocument(doc).length).toBeGreaterThan(0);
+    expect(selectDfdNodes(store.getState().doc, 'fReg').some((n) => n.refId === 'df1' || n.refId === 'tf1')).toBe(false);
   });
 
   it('applyLayoutAll: ソフトウェアのすべての DFD を整列し、1 回の Undo ですべて戻る（FR-DF-26）', () => {

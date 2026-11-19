@@ -3,6 +3,7 @@ import { canConnect, canConnectNodes, canPlaceMultiple, ruleKindOf } from '../do
 import { findFreePosition, nodeSize } from '../domain/dfdGeometry';
 import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
+import { entityExists, repairReferences, repairReferencesInPlace } from '../domain/integrity';
 import { appliedCharacteristicPreset, characteristicPresets, featuresInOrder, refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
@@ -174,25 +175,29 @@ function canMoveFeature(doc: FpDocument, id: Id, category2Id: Id, newIndex: numb
 // ---------- スライス ----------
 
 export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument): DocumentSlice {
-  /** ドキュメントを変更する操作。revision を進めて 1 件の履歴にする */
+  /** ドキュメントを変更する操作。新しい revision を割り当てて 1 件の履歴にする */
   const mutate = (fn: (doc: FpDocument, s: AppState) => void) =>
     set((s) => {
       fn(s.doc, s);
-      s.revision += 1;
+      s.revisionSeq += 1;
+      s.revision = s.revisionSeq;
     });
 
   return {
     doc: initial,
     revision: 0,
+    revisionSeq: 0,
     savedRevision: 0,
     backedUpRevision: 0,
     lastSavedAt: null,
     lastBackupAt: null,
 
-    loadDocument: (doc) =>
+    loadDocument: (loaded) => {
+      const { doc, repairs } = repairReferences(loaded);
       set((s) => {
         s.doc = doc;
-        s.revision += 1;
+        s.revisionSeq += 1;
+        s.revision = s.revisionSeq;
         s.savedRevision = s.revision;
         s.backedUpRevision = s.revision;
         s.selectedSoftwareId = doc.project.softwareIds[0] ?? null;
@@ -200,7 +205,9 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         s.selectedNodeIds = [];
         s.selectedEdgeId = null;
         s.propertyTarget = 'feature';
-      }),
+      });
+      return repairs;
+    },
     markSaved: (revision, at = Date.now()) => set((s) => { s.savedRevision = revision; s.lastSavedAt = at; }),
     markBackedUp: (revision, at = Date.now()) => set((s) => { s.backedUpRevision = revision; s.lastBackupAt = at; }),
     renameProject: (name) => mutate((d) => { d.project.name = name; }),
@@ -695,6 +702,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
       if (plan.errors.length) return { ok: false, reason: plan.errors[0] };
       if (!get().doc.softwares[softwareId]) return { ok: false, reason: 'ソフトウェアが見つかりません。' };
       let created = 0;
+      let repairs: string[] = [];
       const featureIds: Id[] = [];
       mutate((d) => {
         // 1. 分類と新しい機能
@@ -782,7 +790,8 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           const resolve = (k: string) => {
             if (refOf.has(k)) return refOf.get(k)!;
             const p = fp.places.find((x) => x.key === k);
-            if (p) return { refType: p.refType, refId: p.refId };
+            // ほかの機能の削除（手順 2）で実体がなくなっていれば置かない（実体のないノードを作らない）
+            if (p) return entityExists(d, p) ? { refType: p.refType, refId: p.refId } : null;
             // 置いてある既存の要素
             const n = g().nodes.find((x) => entityKeyOnDraft(d, x.refType, x.refId) === k);
             return n ? { refType: n.refType, refId: n.refId } : null;
@@ -825,8 +834,10 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           if (layout && featurePlanHasChanges(fp)) layoutOnDraft(d, fid);
           featureIds.push(fid);
         }
+        // 念のため、壊れた参照が残っていれば取り除く（画面が表示できなくなるのを防ぐ）
+        repairs = repairReferencesInPlace(d);
       });
-      return { ok: true, created, featureIds };
+      return { ok: true, created, featureIds, repairs };
     },
     placeReferences: (targetFeatureIds, refs) => {
       const doc = get().doc;

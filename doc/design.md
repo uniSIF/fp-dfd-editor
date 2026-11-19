@@ -708,7 +708,7 @@ export async function loadFromFile(file: File): Promise<Result<FpDocument, LoadE
 const INDEX_KEY = 'fpdfd.backup.index';            // string[]（ISO 時刻の配列、昇順）
 const ENTRY_KEY = (iso: string) => `fpdfd.backup.${iso}`;
 
-export function writeBackup(doc: FpDocument, generations: number): Result<void, 'quota' | 'unavailable'>;
+export function writeBackup(doc: FpDocument, generations: number): Result<string, 'quota' | 'unavailable'> & { dropped?: number };
 export function listBackups(): { iso: string; size: number }[];
 export function readBackup(iso: string): Result<FpDocument, LoadError>;
 export function readLatestBackup(): Result<FpDocument, LoadError> | null;
@@ -716,7 +716,9 @@ export function readLatestBackup(): Result<FpDocument, LoadError> | null;
 
 - `AppShell` で `setInterval(tick, backupSettings.intervalSec * 1000)`。`tick` は `revision !== backedUpRevision` のときだけ `writeBackup` を呼び、成功で `markBackedUp(revision)`。
 - 世代管理: 書き込み後、インデックスが `generations` を超えたら古い順に `removeItem`。
-- `QuotaExceededError`（`DOMException.name === 'QuotaExceededError'` または code 22）を捕捉したら、最古の世代を 1 つ削除して 1 回だけ再試行し、それでも失敗なら Snackbar で「バックアップに失敗しました。手動保存してください」を表示する。
+- `QuotaExceededError`（`DOMException.name === 'QuotaExceededError'` または code 22）を捕捉したら、書き込めるまで古い世代から削除して再試行する（最新の内容を残すことを優先する。localStorage は約 520 万文字までで、50 万文字を超えるドキュメントは 10 世代が入らない）。削除した世代の数を `dropped` に返し、`AppShell` は起動中に 1 回だけ、残りの世代数を Snackbar で知らせる。すべて削除しても書き込めなければ Snackbar で「バックアップに失敗しました。手動保存してください」を表示する。
+- `revision` は変更のたびに新しい番号（`revisionSeq` から採番。履歴の対象外）を割り当てる。Undo / Redo では `revision` がその時点の番号に戻るが、そのあとの変更には使っていない番号を使う。番号を使い回すと、Undo のあとの別の変更が `backedUpRevision` / `savedRevision` と同じ番号になり、バックアップと未保存の表示が抜ける。
+- 起動時に最新のバックアップを読み込んだあとは、読み込み後の `revision` をバックアップ済みとする（変更がなければ新しい世代を作らない）。
 - `localStorage` が使えない環境（プライベートモード等で例外）は起動時に検知し、ステータスバーに「自動バックアップ無効」を表示する。
 - バックアップの内容は `FpDocument` の JSON 文字列（8.1 と同一形式）。読み込み時も `migrateAndValidate` を通す。
 
@@ -747,6 +749,14 @@ sequenceDiagram
 - `beforeunload` では `isDirty` のときのみ `event.preventDefault()` と `returnValue` 設定を行う。
 
 ---
+
+### 8.6 壊れた参照と表示中の例外 [FR-SV-10][FR-IO-10]
+
+形式（8.1 のスキーマ）が正しくても、指している相手がないと、表示や計算の途中で例外になる。次の 3 段で、画面が出なくなるのを防ぐ。
+
+1. **作らない**: Copilot の出力の取り込み（`planImport`）で、所有機能の dfd から外したデータファンクションを出力のほかの機能が使っているときは、削除（`delete`）ではなく DFD から外す（`unplace`）にする。所有を移す指定（`owner`）があればそれに従う。取り込めるが直してもらったほうがよい点は `ImportPlan.fixes` に入れ、`buildFixInstruction(plan, extra)` が `errors` とあわせてエージェントへの修正指示にする（`AgentImportDialog` に表示し、コピーできる）。`applyImportPlan` は、置こうとした実体がなければ置かない。
+2. **取り除く**: `domain/integrity.ts` の `repairReferencesInPlace` が、所属する機能のない TF・非計上プロセス、実体のないノード、両端のそろわない・同じノードを結ぶデータフローを取り除き、存在しない機能を指す所有機能と存在しない外注業者を未設定にする。`loadDocument`（ファイル・バックアップ・起動時）は `repairReferences` で複製を直してから読み込み、直した内容を返す。`applyImportPlan` も最後に呼ぶ。呼び出し側は件数を Snackbar で知らせる（`repairSummary`）。起動時に直したときは、直した内容を次の自動バックアップで保存する。
+3. **受け止める**: `features/app/ErrorBoundary.tsx`。タブの内容とプロパティパネルをそれぞれ包み、例外が起きた領域だけを「○○を表示できませんでした」と、元に戻す・ファイルに保存・もう一度表示する、のボタンに置き換える。ドキュメントの版・選択中の機能・タブが変わると表示し直す。ツリーやツールバーで起きた例外は、アプリ全体を包む `RootErrorBoundary` が受け、再読み込み（最新のバックアップを開く）も選べる。`selectDfdNodes` は、実体のないノードがあっても例外にしない。
 
 ## 9. エクスポート設計
 
@@ -925,6 +935,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-IO-07 | `Software.agentNotes`（省略可。スキーマも省略可で、既存の保存ファイルはそのまま読める）、4.2（`updateAgentNotes`）、`domain/agentPrompt.ts`（`buildAgentInstructions`）、`domain/exchange.ts`（`software.notes`）、`AgentExportDialog.tsx` |
 | FR-IO-08 | `features/agent/AgentExportDialog.tsx`（`fullScreen`、左に機能の一覧と絞り込み、右に依頼・コピー・エージェントの設定。`setShown` で表示中の機能だけ選択を変える） |
 | FR-IO-09 | `domain/agentPrompt.ts`（指示を共通の部品から組み立てる。`FP_BOOST_INSTRUCTIONS`、`AGENTS`、`buildAgentInstructions(notes, agent)`・`buildAgentRequest(…, agent)`）、`AgentExportDialog.tsx`（「使うエージェント」の切り替え）、`doc/copilot-agent.md`（2 つ目の指示ブロック。単体テストで一致を確認） |
+| FR-IO-10、FR-SV-10 | 8.6（`domain/integrity.ts`、`exchange.ts` の `ImportPlan.fixes`・`buildFixInstruction`、`features/app/ErrorBoundary.tsx`） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |

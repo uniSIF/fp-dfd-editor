@@ -161,6 +161,22 @@ test('自動バックアップが保存され、再読み込みで復元され�
   await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
   await page.getByRole('tab', { name: 'ファンクション表' }).click();
   await expect(page.getByRole('complementary', { name: 'プロパティ' }).getByRole('textbox', { name: '機能の説明' })).toHaveValue('変更後の説明');
+  // 読み込んだだけ（変更なし）では、新しい世代を作らない
+  await page.clock.runFor(61_000);
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('fpdfd.backup.index')))!)).toHaveLength(1);
+  // 変更して元に戻し、別の変更をしても、バックアップされる
+  const desc = page.getByRole('complementary', { name: 'プロパティ' }).getByRole('textbox', { name: '機能の説明' });
+  await desc.fill('2 回目の説明');
+  await desc.blur();
+  await page.clock.runFor(61_000);
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('fpdfd.backup.index')))!)).toHaveLength(2);
+  await page.getByRole('button', { name: /元に戻す/ }).click();
+  await desc.fill('3 回目の説明');
+  await desc.blur();
+  await page.clock.runFor(61_000);
+  const index2 = JSON.parse((await page.evaluate(() => localStorage.getItem('fpdfd.backup.index')))!) as string[];
+  expect(index2).toHaveLength(3);
+  expect(await page.evaluate((k) => localStorage.getItem(`fpdfd.backup.${k}`), index2[2])).toContain('3 回目の説明');
 });
 
 test('設定ダイアログと業者の追加', async ({ page }) => {
@@ -1754,4 +1770,89 @@ test('すべての DFD を一括で自動整列でき、1 回の Undo で戻る�
   await page.getByRole('menuitem', { name: 'すべての DFD を一括で整列…' }).click();
   await dialog.getByRole('button', { name: '整列' }).click();
   expect(await positions()).toEqual(after);
+});
+
+test('Copilot の出力で参照が壊れる場合は修正指示を示し、取り込んでも DFD を表示できる（FR-IO-10）', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openSample(page);
+  const open = async () => {
+    await page.getByRole('button', { name: 'Copilot 連携' }).click();
+    await page.getByRole('menuitem', { name: 'Copilot の出力を取り込む…' }).click();
+  };
+  const dialog = page.getByRole('dialog');
+  const fix = dialog.getByLabel('Copilot への修正指示');
+  const reg = {
+    key: 'fReg',
+    dfd: {
+      externalEntities: [{ key: 'EE-001', name: '利用者' }],
+      transactionFunctions: [{ key: 'TF-001', name: '顧客登録入力', kind: 'EI', complexity: 'medium' }],
+      dataFlows: [{ from: 'EE-001', to: 'TF-001', label: '登録情報' }],
+    },
+  };
+  // 顧客登録が所有する顧客マスタ（DF-001）を顧客登録の dfd から外し、新しい機能で owner を書かずに使う出力
+  const inquiry = {
+    key: 'new-1', name: '顧客照会', category1: '顧客管理', category2: '顧客情報',
+    dfd: {
+      dataFunctions: [{ key: 'DF-001', name: '顧客マスタ', kind: 'ILF', complexity: 'medium' }],
+      transactionFunctions: [{ key: 'T-NEW', name: '顧客照会処理', kind: 'EQ', complexity: 'low' }],
+      dataFlows: [{ from: 'DF-001', to: 'T-NEW', label: '顧客情報' }],
+    },
+  };
+
+  // 1. dfd にない key を指すデータフロー: 取り込めず、修正指示をコピーできる
+  await open();
+  await expect(fix).toHaveCount(0);
+  const dangling = { ...inquiry, dfd: { ...inquiry.dfd, dataFlows: [{ from: 'DF-999', to: 'T-NEW', label: '顧客情報' }] } };
+  await dialog.getByLabel('エージェントの返答').fill(JSON.stringify({ format: 'fp-dfd-exchange', features: [reg, dangling] }));
+  await expect(dialog.getByRole('button', { name: '取り込む' })).toBeDisabled();
+  await expect(fix).toHaveValue(/JSON 全体をもう一度出力してください/);
+  await expect(fix).toHaveValue(/DF-999/);
+  await dialog.getByRole('button', { name: '修正指示をコピー' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('この機能の dfd にない key「DF-999」');
+
+  // 2. 所有機能の dfd から外したデータファンクションをほかの機能で使う: 取り込めるが、所有の扱いを直す指示を示す
+  await dialog.getByLabel('エージェントの返答').fill(JSON.stringify({ format: 'fp-dfd-exchange', features: [reg, inquiry] }));
+  await expect(fix).toHaveValue(/データファンクション「DF-001 顧客マスタ」は機能「顧客登録」（key: fReg）の所有ですが/);
+  await expect(fix).toHaveValue(/"owner": "new-1"/);
+  await expect(dialog.getByRole('list', { name: '取り込む変更' })).toContainText('外す');
+  await dialog.getByRole('button', { name: '取り込む' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // 新しい機能の DFD を開いても表示でき、顧客マスタは顧客登録の所有のまま参照として置かれる
+  await page.getByRole('treeitem', { name: /^顧客照会/ }).click();
+  await expect(page.getByTestId('render-error')).toHaveCount(0);
+  await expect(page.locator(NODE)).toHaveCount(2);
+  await expect(page.getByTestId('dfd-canvas').getByText('所有: 顧客登録', { exact: true })).toBeVisible();
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+  for (const tab of ['ファンクション表', '一覧', '台帳', 'DFD']) {
+    await page.getByRole('tab', { name: tab, exact: true }).click();
+    await expect(page.getByTestId('render-error')).toHaveCount(0);
+  }
+});
+
+test('表示中に例外が起きても画面全体は消えず、ほかの機能やタブを使い続けられる', async ({ page }) => {
+  await openSample(page);
+  page.on('pageerror', () => {}); // わざと起こす例外
+  // 顧客登録の DFD を、表示できない壊れた状態にする（読み込み時の修復を通さずに入れる）
+  const corrupt = (how: 'node' | 'dfd') => page.evaluate((how) => {
+    const st = (window as unknown as { __store: { getState: () => { doc: Record<string, unknown>; revision: number }; setState: (p: unknown) => void } }).__store;
+    const doc = JSON.parse(JSON.stringify(st.getState().doc));
+    if (how === 'node') doc.features.fReg.dfd.nodes[0].refType = 'bogus';
+    else doc.features.fReg.dfd = null;
+    st.setState({ doc, revision: st.getState().revision + 1000 });
+  }, how);
+  await corrupt('node');
+  const error = page.getByTestId('render-error').first();
+  await expect(error).toContainText('を表示できませんでした');
+  // ツールバーとツリーは使える。別の機能を開くと表示が戻る
+  await expect(page.getByRole('button', { name: 'CSV出力' })).toBeVisible();
+  await page.getByRole('treeitem', { name: /^商品登録/ }).click();
+  await expect(page.getByTestId('render-error')).toHaveCount(0);
+  await expect(page.locator(NODE)).toHaveCount(1);
+
+  // ツリーなども表示できないほど壊れていても、真っ白にはせず、保存と再読み込みを選べる
+  await corrupt('dfd');
+  await expect(page.getByTestId('render-error').first()).toContainText('画面を表示できませんでした');
+  await expect(page.getByRole('button', { name: 'ファイルに保存' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /再読み込み/ })).toBeVisible();
 });

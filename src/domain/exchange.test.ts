@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { createAppStore, undo } from '../store';
 import { AGENT_INSTRUCTIONS, AGENTS, buildAgentInstructions, buildAgentRequest, FP_BOOST_INSTRUCTIONS } from './agentPrompt';
 import { parseDocumentJson } from './migrations';
-import { buildExchange, featurePlanHasChanges, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
+import { buildExchange, buildFixInstruction, featurePlanHasChanges, parseExchange, planHasChanges, planImport, type ImportData } from './exchange';
+import { findBrokenReferences, repairReferences } from './integrity';
 import { sampleDocument } from './sampleDocument';
 
 const parse = (text: string): ImportData => {
@@ -389,6 +390,97 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     // 既存どうしの重複や、そのまま返しただけでは警告しない
     const same = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
     expect(same.warnings.filter((w) => w.includes('重複'))).toEqual([]);
+  });
+
+  it('既存の機能から外したデータファンクションを新しい機能で使う出力でも、参照が壊れない', () => {
+    const store = createAppStore(sampleDocument());
+    const doc = store.getState().doc;
+    const ex = JSON.parse(JSON.stringify(buildExchange(doc, ['fReg'])));
+    // 顧客登録が所有する DF-001（顧客マスタ）を顧客登録の dfd から外し、新しい機能で owner を書かずに使う
+    const reg = ex.features[0];
+    const df = reg.dfd.dataFunctions.find((d: { key: string }) => d.key === 'DF-001');
+    reg.dfd.dataFunctions = reg.dfd.dataFunctions.filter((d: { key: string }) => d.key !== 'DF-001');
+    reg.dfd.dataFlows = reg.dfd.dataFlows.filter((f: { from: string; to: string }) => f.from !== 'DF-001' && f.to !== 'DF-001');
+    ex.features.push({
+      key: 'new-1', name: '顧客照会', category1: '顧客管理', category2: '顧客情報',
+      dfd: {
+        dataFunctions: [df],
+        transactionFunctions: [{ key: 'T-NEW', name: '顧客照会', kind: 'EQ', complexity: 'low' }],
+        dataFlows: [{ from: 'DF-001', to: 'T-NEW', label: '顧客情報' }],
+      },
+    });
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(plan.errors).toEqual([]);
+    // 削除ではなく、顧客登録の DFD から外すだけにする。所有機能をどうするかをエージェントに確かめる指示を出す
+    expect(plan.features[0].removals).toContainEqual(expect.objectContaining({ key: 'DF-001', mode: 'unplace' }));
+    expect(plan.warnings.join('\n')).toContain('DF-001 顧客マスタ');
+    expect(plan.fixes.join('\n')).toContain('owner');
+    const text = buildFixInstruction(plan)!;
+    expect(text).toContain('JSON 全体をもう一度出力してください');
+    expect(text).toContain('DF-001');
+
+    const r = store.getState().applyImportPlan('sw1', plan, { layout: true });
+    expect(r.ok).toBe(true);
+    const after = store.getState().doc;
+    expect(after.dataFunctions.df1).toBeDefined();
+    expect(after.dataFunctions.df1.ownerFeatureId).toBe('fReg');
+    expect(findBrokenReferences(after)).toEqual([]);
+    const created = Object.values(after.features).find((f) => f.name === '顧客照会')!;
+    expect(created.dfd.nodes.map((n) => n.refId)).toContain('df1');
+    expect(created.dfd.edges).toHaveLength(1);
+    expect(after.features.fReg.dfd.nodes.some((n) => n.refId === 'df1')).toBe(false);
+
+    // owner を新しい機能にしていれば、所有を移す（修正指示は出さない）
+    df.owner = 'new-1';
+    const moved = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(moved.fixes).toEqual([]);
+    expect(moved.ownerChanges).toHaveLength(1);
+    expect(buildFixInstruction(moved)).toBeNull();
+  });
+
+  it('取り込めない出力には、エージェントへの修正指示を作る', () => {
+    const doc = sampleDocument();
+    const ex = JSON.parse(JSON.stringify(buildExchange(doc, ['fReg'])));
+    ex.features[0].dfd.dataFlows.push({ from: 'TF-001', to: 'DF-999', label: '存在しない' });
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: false });
+    expect(plan.errors).toHaveLength(1);
+    const text = buildFixInstruction(plan)!;
+    expect(text).toContain('DF-999');
+    // 問題は 1 件（そのあとに、直すときの注意が続く）
+    expect(text.slice(0, text.indexOf('直すときは')).split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    // JSON として読めない場合も、理由を添えた指示にする
+    expect(buildFixInstruction(null, ['JSON として読めません（Unexpected token）。'])).toContain('JSON として読めません');
+    // 問題がなければ指示は作らない
+    expect(buildFixInstruction(planImport(doc, 'sw1', parse(JSON.stringify(buildExchange(doc, ['fReg']))), { removeMissing: false }))).toBeNull();
+  });
+
+  it('壊れた参照（実体のないノード・両端のないデータフローなど）を取り除いて、表示できる状態にする', () => {
+    const doc = sampleDocument();
+    expect(findBrokenReferences(doc)).toEqual([]);
+    expect(repairReferences(doc)).toEqual({ doc, repairs: [] });
+    const broken = JSON.parse(JSON.stringify(doc)) as typeof doc;
+    delete broken.dataFunctions.df1; // n5 が指す実体がない
+    broken.features.fReg.dfd.edges.push({ id: 'eX', sourceNodeId: 'n1', targetNodeId: 'gone', label: '' });
+    broken.dataFunctions.df2.ownerFeatureId = 'noFeature';
+    broken.transactionFunctions.tf1.featureId = 'noFeature';
+    broken.features.fSearch.vendorId = 'noVendor';
+    const found = findBrokenReferences(broken);
+    expect(found.length).toBeGreaterThanOrEqual(5);
+    const r = repairReferences(broken);
+    expect(r.repairs).toEqual(found);
+    expect(r.doc).not.toBe(broken);
+    expect(findBrokenReferences(r.doc)).toEqual([]);
+    expect(r.doc.features.fReg.dfd.nodes.some((n) => n.refId === 'df1' || n.refId === 'tf1')).toBe(false);
+    expect(r.doc.features.fReg.dfd.edges.every((e) => ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'].includes(e.sourceNodeId))).toBe(true);
+    expect(r.doc.dataFunctions.df2.ownerFeatureId).toBeNull();
+    expect(r.doc.transactionFunctions.tf1).toBeUndefined();
+    expect(r.doc.features.fSearch.vendorId).toBeNull();
+    // 保存ファイルの形式としても正しい
+    expect(parseDocumentJson(JSON.stringify(r.doc)).ok).toBe(true);
+    // 読み込むときに直す
+    const store = createAppStore(sampleDocument());
+    expect(store.getState().loadDocument(broken)).toEqual(found);
+    expect(findBrokenReferences(store.getState().doc)).toEqual([]);
   });
 
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {

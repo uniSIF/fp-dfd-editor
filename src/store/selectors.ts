@@ -279,7 +279,7 @@ export const selectDfdNodes = memoByDoc<Id, DfdNodeView[]>((doc, featureId) => {
         const ownerUnset = d?.ownerFeatureId === null;
         const isRef = d?.ownerFeatureId !== featureId;
         return { ...base, name: d?.name ?? '', displayNo: d?.displayNo ?? null, kind: d?.kind ?? null, complexity: d?.complexity ?? null,
-          ownerName: isRef ? (ownerUnset ? '未設定' : doc.features[d!.ownerFeatureId!]?.name ?? '') : null,
+          ownerName: isRef ? (ownerUnset ? '未設定' : doc.features[d?.ownerFeatureId ?? '']?.name ?? '') : null,
           isReference: isRef, description: d?.description ?? '', warning: ownerUnset ? '所有機能が未設定' : unconnectedWarn };
       }
       case 'externalEntity': {

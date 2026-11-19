@@ -67,14 +67,21 @@ export type PlaceOption = boolean | { x: number; y: number };
 
 export interface DocumentSlice {
   doc: FpDocument;
+  /** ドキュメントの版。変更のたびに新しい番号になり、Undo / Redo ではその時点の番号に戻る */
   revision: number;
+  /**
+   * これまでに発行した revision の最大値（履歴の対象外）。Undo で revision が戻ったあとの変更にも、使っていない番号を割り当てる。
+   * 番号を使い回すと、Undo のあとに別の変更をしても保存済み・バックアップ済みと同じ番号になり、未保存の表示と自動バックアップが抜ける
+   */
+  revisionSeq: number;
   savedRevision: number;
   backedUpRevision: number;
   lastSavedAt: number | null;
   lastBackupAt: number | null;
 
   // 文書
-  loadDocument: (doc: FpDocument) => void;
+  /** ドキュメントを読み込む。壊れた参照があれば取り除いて読み込み、直した内容の説明を返す（domain/integrity.ts） */
+  loadDocument: (doc: FpDocument) => string[];
   markSaved: (revision: number, at?: number) => void;
   markBackedUp: (revision: number, at?: number) => void;
   renameProject: (name: string) => void;
@@ -191,7 +198,7 @@ export interface DocumentSlice {
    * 新しい分類・機能を作り、各機能の DFD に要素とデータフローを反映する。layout なら変更した機能の DFD を自動整列する。
    * 戻り値の featureIds は出力に含まれた機能（新しく作ったものを含む）。
    */
-  applyImportPlan: (softwareId: Id, plan: ImportPlan, options: { layout: boolean }) => { ok: true; created: number; featureIds: Id[] } | { ok: false; reason: string };
+  applyImportPlan: (softwareId: Id, plan: ImportPlan, options: { layout: boolean }) => { ok: true; created: number; featureIds: Id[]; repairs: string[] } | { ok: false; reason: string };
   /**
    * データファンクション・外部エンティティを、ID はそのままで複数の機能の DFD に参照として置く（FR-FN-19）。1 履歴。
    * 置き済みの要素は飛ばす。TF・非計上プロセスは機能に属するため対象外。戻り値は機能ごとに置いた件数。

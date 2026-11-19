@@ -6,7 +6,8 @@ import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useEffect, useRef, useState } from 'react';
-import { writeBackup } from '../../infra/backup';
+import { listBackups, writeBackup } from '../../infra/backup';
+import { useStore as useZustand } from 'zustand';
 import { useStore, type Tab as TabId } from '../../store';
 import { selectIsDirty } from '../../store/selectors';
 import { AppSnackbar } from '../common/AppSnackbar';
@@ -26,6 +27,7 @@ import { SummaryTable } from '../summary/SummaryTable';
 import { FeatureTree } from '../tree/FeatureTree';
 import { Breadcrumb } from './Breadcrumb';
 import { openFile } from './commands';
+import { ErrorBoundary } from './ErrorBoundary';
 import { StatusBar } from './StatusBar';
 import { tokens } from './theme';
 import { Toolbar } from './Toolbar';
@@ -35,14 +37,21 @@ import { PaneResizer, useLeftPaneWidth } from './PaneResizer';
 function useAutoBackup() {
   const intervalSec = useStore((s) => s.doc.backupSettings.intervalSec);
   const available = useStore((s) => s.backupAvailable);
+  // 保存領域が足りず世代を減らしたことは、起動中に 1 回だけ知らせる
+  const warnedDropped = useRef(false);
   useEffect(() => {
     if (!available) return;
     const id = window.setInterval(() => {
       const s = useStore.getState();
       if (s.revision === s.backedUpRevision) return;
       const r = writeBackup(s.doc, s.doc.backupSettings.generations);
-      if (r.ok) s.markBackedUp(s.revision);
-      else if (r.error === 'quota') s.notify('バックアップに失敗しました。ブラウザの保存領域が不足しています。手動保存してください。', 'error');
+      if (r.ok) {
+        s.markBackedUp(s.revision);
+        if (r.dropped && !warnedDropped.current) {
+          warnedDropped.current = true;
+          s.notify(`ブラウザの保存領域が足りないため、古いバックアップを削除しました（残り ${listBackups().length} 世代）。大事な版は手動保存してください。`, 'info');
+        }
+      } else if (r.error === 'quota') s.notify('バックアップに失敗しました。ブラウザの保存領域が不足しています。手動保存してください。', 'error');
       else {
         s.setBackupAvailable(false);
         s.notify('自動バックアップを利用できません。手動保存してください。', 'error');
@@ -102,7 +111,13 @@ export function AppShell() {
     content = <FunctionLedger softwareId={softwareId!} />;
   }
 
-  const properties = <PropertyPanel />;
+  // 表示中の例外は、その領域だけをメッセージに置き換える（画面全体が真っ白にならないように）
+  const revision = useStore((s) => s.revision);
+  const canUndo = useZustand(useStore.temporal, (s) => s.pastStates.length > 0);
+  const resetKey = `${revision}:${featureId}:${softwareId}:${activeTab}`;
+  const TAB_LABELS: Record<TabId, string> = { dfd: 'DFD', functions: 'ファンクション表', summary: '一覧', ledger: '台帳' };
+  content = <ErrorBoundary label={TAB_LABELS[activeTab]} resetKey={resetKey} canUndo={canUndo}>{content}</ErrorBoundary>;
+  const properties = <ErrorBoundary label="プロパティ" resetKey={resetKey} canUndo={canUndo}><PropertyPanel /></ErrorBoundary>;
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', minWidth: 1080, background: tokens.appBg }}>
