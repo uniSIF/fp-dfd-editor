@@ -86,9 +86,10 @@ export function DfdLegendPanel({ featureId }: { featureId: Id }) {
               <FlowSample color={tokens.borderStrong} />
               <span>データフロー（丸印が始点）</span>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, height: 18, whiteSpace: 'nowrap' }}>
+              <span>マウスを載せたノード:</span>
               <FlowSample color={tokens.primary} />
-              <span>マウスを載せたノードから出る</span>
+              <span>出る</span>
               <FlowSample color={tokens.flowIn} />
               <span>入る</span>
             </Box>

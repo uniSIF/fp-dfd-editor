@@ -1,7 +1,7 @@
 import Tooltip from '@mui/material/Tooltip';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import { BADGE_COLORS, BOUNDARY, GEOMETRY, nodeLayout } from '../../../domain/dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, GEOMETRY, OWNER_CAPTION, nodeLayout, ownerCaptionText } from '../../../domain/dfdGeometry';
 import { COMPLEXITY_LABELS } from '../../../domain/fpTables';
 import type { DfdNodeView } from '../../../store/selectors';
 import { tokens } from '../../app/theme';
@@ -134,8 +134,8 @@ export const DataStoreNode = memo(function DataStoreNode({ data, selected }: Nod
         )}
       </span>
       {data.isReference && (
-        <span style={{ position: 'absolute', top: height + 2, left: 0, right: 0, textAlign: 'center', fontSize: 11, color: data.ownerName === '未設定' ? tokens.warning : tokens.textSecondary, whiteSpace: 'nowrap' }}>
-          所有: {data.ownerName}
+        <span style={{ position: 'absolute', top: height + OWNER_CAPTION.gap, left: 0, right: 0, textAlign: 'center', fontSize: OWNER_CAPTION.fontSize, lineHeight: `${OWNER_CAPTION.height}px`, color: data.ownerName === '未設定' ? tokens.warning : tokens.textSecondary, whiteSpace: 'nowrap' }}>
+          {ownerCaptionText(data.ownerName ?? '')}
         </span>
       )}
       <MemoIcon text={data.description} style={{ top: 4, right: 4 }} />

@@ -89,6 +89,22 @@ export function nodeBox(refType: NodeRefType, x: number, y: number, name = ''): 
   return { x, y, width, height, round };
 }
 
+/** 参照として置いたデータファンクションの下に出す「所有: ○○」の補記（画面と SVG 出力で共通の位置・大きさ） */
+export const OWNER_CAPTION = { fontSize: 11, gap: 2, height: 15 } as const;
+
+export function ownerCaptionText(ownerName: string): string {
+  return `所有: ${ownerName}`;
+}
+
+/**
+ * 所有の補記が占める矩形。ノードの下に中央ぞろえで置く。
+ * データフローの線とラベルがこの文字に重ならないよう、経路計算で障害物として扱う（routeDataflows の captions）。
+ */
+export function ownerCaptionBox(node: Box, ownerName: string): Box {
+  const width = Math.ceil(textUnits(ownerCaptionText(ownerName)) * OWNER_CAPTION.fontSize) + 4;
+  return { x: node.x + (node.width - width) / 2, y: node.y + node.height + OWNER_CAPTION.gap, width, height: OWNER_CAPTION.height, round: false };
+}
+
 export function boxCenter(b: Box): { x: number; y: number } {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
@@ -546,6 +562,8 @@ const LABEL_POSITIONS = [0.5, ...Array.from({ length: 6 }, (_, i) => [0.5 - (i +
  * DFD のすべてのデータフローの経路とラベルの位置を求める（design.md 9.2）。画面と SVG 出力で共有する。
  * 経路は routeEdge で 1 本ずつ求めたあと、ほかの線と交わる線を、交わりが減る膨らませ方で引き直す（2 回まで）。
  * boundary を渡すと、システム境界の線にもラベルを重ねないようにする。
+ * captions（ノードの外に出す文字の矩形。ownerCaptionBox）を渡すと、線とラベルがその文字に重ならないよう、ノードと同じく避ける。
+ * 補記を持つノード自身につながる線も避けるので、補記のある側からは出入りしにくくなる。
  * 経路は routeEdge で 1 本ずつ求める。ラベルは、ほかのデータフローの線・ほかのラベル・ノードに重ならない位置を、
  * 線の中間点から両端へ向かって、線の上と線の両脇（線に沿わせて横にずらす）の順に探す。
  * 背景で線を隠さないよう、どこにも置けなければ重なりが最も少ない位置にする。大きいラベルから順に置く。
@@ -554,8 +572,9 @@ export function routeDataflows(
   boxes: Map<string, Box>,
   edges: { id: string; sourceNodeId: string; targetNodeId: string; label: string }[],
   boundary: { x: number; y: number; width: number; height: number } | null = null,
+  captions: Box[] = [],
 ): Map<string, EdgeRoute> {
-  const obstacles = [...boxes.values()];
+  const obstacles = [...boxes.values(), ...captions];
   const routes = new Map<string, EdgeRoute>();
   for (const e of edges) {
     const sb = boxes.get(e.sourceNodeId);

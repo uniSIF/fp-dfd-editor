@@ -1606,3 +1606,50 @@ test('台帳からファンクションを削除できる。ほかの機能が�
   await expect(page.locator(NODE)).toHaveCount(6);
   await expect(page.getByTestId('cost-feature')).toHaveText('820,000');
 });
+
+test('データファンクションの下の「所有: ○○」に、データフローの線とラベルが重ならない（FR-DF-12）', async ({ page }) => {
+  await openSample(page);
+  // 商品マスタ（n6。商品登録の所有）の真下に顧客検索（n4）を動かす。まっすぐ結ぶと線が「所有: 商品登録」の上を通る
+  await page.evaluate(() => {
+    type S = { doc: { features: Record<string, { dfd: { nodes: { id: string; x: number; y: number }[] } }> }; moveNodes: (f: string, p: { nodeId: string; x: number; y: number }[]) => void };
+    const s = (window as unknown as { __store: { getState: () => S } }).__store.getState();
+    const n6 = s.doc.features.fReg.dfd.nodes.find((n) => n.id === 'n6')!;
+    s.moveNodes('fReg', [{ nodeId: 'n4', x: n6.x + 46, y: n6.y + 220 }]);
+  });
+  // 全体表示のボタンでも、凡例にノードが隠れない余白を取る
+  await page.locator('.react-flow__controls-fitview').click();
+  await page.waitForTimeout(400);
+  const caption = page.getByTestId('dfd-canvas').getByText('所有: 商品登録', { exact: true });
+  await expect(caption).toBeVisible();
+  await shot(page, '37-owner-caption');
+  const lb = (await page.getByTestId('dfd-legend').boundingBox())!;
+  for (const n of await page.locator(NODE).all()) {
+    const b = (await n.boundingBox())!;
+    expect(b.x < lb.x + lb.width && b.x + b.width > lb.x && b.y < lb.y + lb.height && b.y + b.height > lb.y).toBe(false);
+  }
+  const problems = await page.evaluate(() => {
+    const span = [...document.querySelectorAll('[data-testid="dfd-canvas"] .react-flow__node span')].find((el) => el.textContent === '所有: 商品登録')!;
+    // 文字そのものの範囲（span はノードの幅いっぱいなので、Range で測る）
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const c = range.getBoundingClientRect();
+    const out: string[] = [];
+    for (const path of document.querySelectorAll<SVGPathElement>('[data-testid="dfd-canvas"] path.react-flow__edge-path')) {
+      const m = path.getScreenCTM()!;
+      const len = path.getTotalLength();
+      for (let i = 0; i <= 200; i++) {
+        const p = path.getPointAtLength((len * i) / 200).matrixTransform(m);
+        if (p.x > c.left && p.x < c.right && p.y > c.top && p.y < c.bottom) {
+          out.push(`${path.closest('.react-flow__edge')!.getAttribute('data-id')} が所有の表示を通る`);
+          break;
+        }
+      }
+    }
+    for (const label of document.querySelectorAll('[data-testid="dfd-canvas"] .react-flow__edgelabel-renderer > div')) {
+      const l = label.getBoundingClientRect();
+      if (l.left < c.right && l.right > c.left && l.top < c.bottom && l.bottom > c.top) out.push(`ラベル「${label.textContent}」が所有の表示に重なる`);
+    }
+    return out;
+  });
+  expect(problems).toEqual([]);
+});

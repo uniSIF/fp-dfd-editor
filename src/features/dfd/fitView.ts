@@ -7,6 +7,6 @@ import type { DfdRfNode } from './nodes/DfdNodes';
  * 左右に取ると図が小さくなりすぎるため、上側で吸収する。
  */
 export const DFD_FIT_VIEW: FitViewOptions<DfdRfNode> = {
-  padding: { top: '210px', bottom: '48px', left: '48px', right: '48px' },
+  padding: { top: '264px', bottom: '48px', left: '48px', right: '48px' },
   maxZoom: 1,
 };

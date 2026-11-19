@@ -4,7 +4,7 @@ import { layoutDfd } from './autoLayout';
 import { buildCsv, buildLedgerCsv, escapeCsv } from './csvExport';
 import { canConnect, canConnectNodes, type NodeKindForRule } from './dfdRules';
 import { flowEmphasis } from './flowEmphasis';
-import { EDGE_START_DOT, MIN_END_GAP, clipToBoundary, countCrossings, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, pointOnRoute, routeDataflows, routeEdge, segmentsCross, wrapLabel, type Box, type EdgeRoute } from './dfdGeometry';
+import { EDGE_START_DOT, MIN_END_GAP, clipToBoundary, countCrossings, edgeBias, edgeLabelLines, edgeLabelSize, nodeBox, ownerCaptionBox, pointOnRoute, routeDataflows, routeEdge, segmentsCross, wrapLabel, type Box, type EdgeRoute } from './dfdGeometry';
 import { migrateAndValidate, parseDocumentJson } from './migrations';
 import { refName } from './queries';
 import { sampleDocument } from './sampleDocument';
@@ -257,6 +257,35 @@ describe('dfdGeometry', () => {
       const r = routeEdge(boxes.get(e.sourceNodeId)!, boxes.get(e.targetNodeId)!, [...boxes.values()]);
       expect(routes.get(e.id)!.path).toBe(r.path);
     }
+  });
+
+  it('データファンクションの下の「所有: ○○」には、データフローの線とラベルを重ねない', () => {
+    // 参照のデータファンクション（補記あり）の左下にあるプロセスから、斜め上へ線を引く。まっすぐ引くと補記の上を通る
+    const df = nodeBox('dataFunction', 300, 0);
+    const p = nodeBox('transactionFunction', 160, 150);
+    // 補記の高さ（y = 62〜77）を左右に結ぶ 2 つのノード
+    const q = nodeBox('externalEntity', 60, 40);
+    const far = nodeBox('transactionFunction', 700, 26);
+    const boxes = new Map<string, Box>([['df', df], ['p', p], ['q', q], ['far', far]]);
+    const caption = ownerCaptionBox(df, '商品登録');
+    expect(caption.y).toBe(df.y + df.height + 2);
+    expect(caption.x + caption.width / 2).toBe(df.x + df.width / 2);
+    const edges = [
+      { id: 'own', sourceNodeId: 'p', targetNodeId: 'df', label: '商品情報' },
+      // 補記のすぐ下を横切る、ほかのノードどうしの線
+      { id: 'pass', sourceNodeId: 'q', targetNodeId: 'far', label: '' },
+    ];
+    const onCaption = (q: { x: number; y: number }) => q.x > caption.x && q.x < caption.x + caption.width && q.y > caption.y && q.y < caption.y + caption.height;
+    const crosses = (r: EdgeRoute) => Array.from({ length: 199 }, (_, i) => pointOnRoute(r, (i + 1) / 200)).some(onCaption);
+    // 補記を渡さなければ、どちらも補記の上を通る（線どうしの交差を避ける引き直しの影響を除くため、1 本ずつ確かめる）
+    for (const e of edges) expect(crosses(routeDataflows(boxes, [e]).get(e.id)!), e.id).toBe(true);
+    for (const e of edges) expect(crosses(routeDataflows(boxes, [e], null, [caption]).get(e.id)!), e.id).toBe(false);
+    const routes = routeDataflows(boxes, edges, null, [caption]);
+    for (const e of edges) expect(crosses(routes.get(e.id)!), e.id).toBe(false);
+    // ラベルも補記に重ねない
+    const label = routes.get('own')!.label;
+    const size = edgeLabelSize('商品情報');
+    expect(Math.abs(label.x - (caption.x + caption.width / 2)) >= (size.width + caption.width) / 2 || Math.abs(label.y - (caption.y + caption.height / 2)) >= (size.height + caption.height) / 2).toBe(true);
   });
 
   it('始点の丸印は、始点のノードのすぐ外に置く', () => {

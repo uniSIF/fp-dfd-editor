@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import { computeBoundary, nodeSize, routeDataflows, type Box, type EdgeRoute } from '../../domain/dfdGeometry';
+import { computeBoundary, nodeSize, ownerCaptionBox, routeDataflows, type Box, type EdgeRoute } from '../../domain/dfdGeometry';
 import type { FlowFocus } from '../../domain/flowEmphasis';
 import type { DfdEdge, Id } from '../../domain/types';
 import type { DfdNodeView } from '../../store/selectors';
@@ -44,6 +44,8 @@ export function keepMeasured(prev: DfdRfNode[], next: DfdRfNode[]): DfdRfNode[] 
  */
 export function routeRfEdges(edges: DfdEdge[], nodes: DfdRfNode[]): Map<string, EdgeRoute> {
   const boxes = new Map<string, Box>();
+  // 参照として置いたデータファンクションの下の「所有: ○○」。線とラベルを重ねない
+  const captions: Box[] = [];
   let boundary: { x: number; y: number; width: number; height: number } | null = null;
   for (const n of nodes) {
     if (n.type === 'boundary') {
@@ -51,9 +53,11 @@ export function routeRfEdges(edges: DfdEdge[], nodes: DfdRfNode[]): Map<string, 
       continue;
     }
     const round = n.data.refType === 'transactionFunction' || n.data.refType === 'nonCountedProcess';
-    boxes.set(n.id, { x: n.position.x, y: n.position.y, width: n.measured?.width ?? n.width ?? 0, height: n.measured?.height ?? n.height ?? 0, round });
+    const box = { x: n.position.x, y: n.position.y, width: n.measured?.width ?? n.width ?? 0, height: n.measured?.height ?? n.height ?? 0, round };
+    boxes.set(n.id, box);
+    if (n.data.refType === 'dataFunction' && n.data.isReference) captions.push(ownerCaptionBox(box, n.data.ownerName ?? ''));
   }
-  return routeDataflows(boxes, edges, boundary);
+  return routeDataflows(boxes, edges, boundary, captions);
 }
 
 /**

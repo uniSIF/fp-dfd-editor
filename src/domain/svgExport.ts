@@ -1,4 +1,4 @@
-import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, EDGE_START_DOT, GEOMETRY, boxCenter, computeBoundary, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, routeDataflows, wrapLabel, type Box } from './dfdGeometry';
+import { BADGE_COLORS, BOUNDARY, COLORS, EDGE_LABEL, EDGE_START_DOT, GEOMETRY, boxCenter, computeBoundary, edgeLabelLines, edgeLabelSize, nodeBox, nodeLayout, ownerCaptionBox, ownerCaptionText, routeDataflows, wrapLabel, type Box } from './dfdGeometry';
 import { COMPLEXITY_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
 import { LEGEND_KINDS, buildDfdLegend, type DfdLegend } from './legend';
 import { safeFileName } from './csvExport';
@@ -106,7 +106,12 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
     maxY = Math.max(maxY, boundary.y + boundary.height);
   }
   // データフローの経路（ノードを避けて曲げる）とラベルの位置（ほかの線・ラベルを避ける）。ラベルも描画範囲に含める
-  const routeMap = routeDataflows(boxes, feature.dfd.edges, boundary);
+  // 参照として置いたデータファンクションの下の「所有: ○○」には、線とラベルを重ねない
+  const captions = nodes.flatMap((n) => {
+    const owner = n.refType === 'dataFunction' ? ownerNameIfReference(doc, n.refId, featureId) : null;
+    return owner === null ? [] : [ownerCaptionBox(boxes.get(n.id)!, owner)];
+  });
+  const routeMap = routeDataflows(boxes, feature.dfd.edges, boundary, captions);
   const routes = feature.dfd.edges.flatMap((e) => {
     const route = routeMap.get(e.id);
     if (!route) return [];
@@ -168,6 +173,13 @@ export function buildDfdSvg(doc: FpDocument, featureId: Id, options: { padding?:
   return parts.join('\n');
 }
 
+/** ほかの機能が所有する（または所有機能が未設定の）データファンクションなら、補記に出す所有機能の名前。この機能の所有なら null */
+function ownerNameIfReference(doc: FpDocument, dataFunctionId: Id, featureId: Id): string | null {
+  const df = doc.dataFunctions[dataFunctionId];
+  if (!df || df.ownerFeatureId === featureId) return null;
+  return df.ownerFeatureId ? doc.features[df.ownerFeatureId]?.name ?? '' : '未設定';
+}
+
 function renderNode(doc: FpDocument, n: DfdNode, b: Box, featureId: Id): string {
   const c = boxCenter(b);
   const nameAttrs = `font-size="${GEOMETRY.label.fontSize}" fill="${COLORS.text}" text-anchor="middle"`;
@@ -201,10 +213,8 @@ function renderNode(doc: FpDocument, n: DfdNode, b: Box, featureId: Id): string 
         badge(b.x + 21, c.y, df.kind),
         ...withSubLine(c.x + 18, c.y, nameLines(n.refType, df.name), nameAttrs, `${df.displayNo} · ${COMPLEXITY_LABELS[df.complexity]}`, smallAttrs),
       ];
-      if (df.ownerFeatureId !== featureId) {
-        const owner = df.ownerFeatureId ? doc.features[df.ownerFeatureId]?.name ?? '' : '未設定';
-        out.push(text(c.x, b.y + b.height + 14, `所有: ${owner}`, smallAttrs));
-      }
+      const owner = ownerNameIfReference(doc, n.refId, featureId);
+      if (owner !== null) out.push(text(c.x, b.y + b.height + 14, ownerCaptionText(owner), smallAttrs));
       return out.join('');
     }
     case 'externalEntity': {

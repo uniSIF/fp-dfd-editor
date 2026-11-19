@@ -233,7 +233,7 @@ export function DfdCanvas({ featureId }: { featureId: Id }) {
         style={{ background: tokens.canvas }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={tokens.border} />
-        <Controls position="bottom-left" showInteractive aria-label="表示操作" />
+        <Controls position="bottom-left" showInteractive aria-label="表示操作" fitViewOptions={DFD_FIT_VIEW} />
         <MiniMap
           position="bottom-right"
           pannable
