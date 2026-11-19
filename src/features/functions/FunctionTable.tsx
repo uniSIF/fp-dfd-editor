@@ -328,7 +328,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           getRowId={(r) => r.rowId}
           rowHeight={32}
           columnHeaderHeight={36}
-          hideFooter
+          {...gridPaging(rows.length)}
           disableColumnMenu
           disableRowSelectionOnClick
           checkboxSelection
@@ -349,7 +349,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
             if (row.nodeIds.length) useStore.getState().setSelection(row.nodeIds, null);
           }}
           getRowClassName={({ row }) => [row.isReference ? 'row-ref' : '', row.hasWarning ? 'row-warn' : '', row.rowId === selectedRow ? 'row-selected' : ''].join(' ')}
-          localeText={{ noRowsLabel: 'ファンクションがありません。上のボタンから追加します。' }}
+          localeText={{ ...gridPaging(rows.length).localeText, noRowsLabel: 'ファンクションがありません。上のボタンから追加します。' }}
           sx={gridSx}
         />
       </Box>
@@ -384,6 +384,25 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
       {connectFrom && <ConnectDialog featureId={featureId} from={connectFrom} onClose={() => setConnectFrom(null)} />}
     </Box>
   );
+}
+
+/** DataGrid（MIT 版）が 1 ページに表示できる行数の上限 */
+export const GRID_PAGE_SIZE = 100;
+
+/**
+ * 行数が多い表のページ送り。MIT 版の DataGrid は常に 100 行ごとにページを分けるので、フッターを隠すと 101 行目以降を表示できない。
+ * 1 ページに収まらないときだけフッターを出し、件数とページ送りのボタンを表示する。
+ */
+export function gridPaging(rowCount: number) {
+  return {
+    hideFooter: rowCount <= GRID_PAGE_SIZE,
+    hideFooterSelectedRowCount: true,
+    pageSizeOptions: [GRID_PAGE_SIZE],
+    localeText: {
+      paginationDisplayedRows: ({ from, to, count }: { from: number; to: number; count: number }) => `${from}〜${to} 件目 / 全 ${count} 件`,
+      paginationItemAriaLabel: (type: 'first' | 'last' | 'next' | 'previous') => ({ first: '最初のページ', last: '最後のページ', next: '次のページ', previous: '前のページ' })[type],
+    },
+  };
 }
 
 export const gridSx = {

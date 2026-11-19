@@ -18,7 +18,7 @@ import { exportLedgerCsv } from '../app/commands';
 import { tokens } from '../app/theme';
 import { KindBadge } from '../common/KindBadge';
 import { WarningChip, WarningIcon } from '../common/WarningIcon';
-import { gridSx } from '../functions/FunctionTable';
+import { gridPaging, gridSx } from '../functions/FunctionTable';
 
 const UNSET = '__unset__';
 
@@ -107,7 +107,7 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
           columns={columns}
           rowHeight={32}
           columnHeaderHeight={36}
-          hideFooter
+          {...gridPaging(rows.length)}
           disableColumnMenu
           disableRowSelectionOnClick
           getRowClassName={({ row }) => (row.warning ? 'row-warn' : '')}
@@ -125,7 +125,7 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
             // 所有機能ラベルや警告など派生値を含む最新の行をストアから返す
             return selectLedger(useStore.getState().doc, softwareId).find((r) => r.id === prev.id) ?? next;
           }}
-          localeText={{ noRowsLabel: 'ファンクションがありません。' }}
+          localeText={{ ...gridPaging(rows.length).localeText, noRowsLabel: 'ファンクションがありません。' }}
           sx={gridSx}
         />
       </Box>

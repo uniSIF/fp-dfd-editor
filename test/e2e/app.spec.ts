@@ -1536,3 +1536,38 @@ test('一覧タブで長い大分類・中分類・小分類の名前はセル�
   }
   await shot(page, '26-summary-long-names');
 });
+
+test('台帳・ファンクション表は、100 件を超えてもページを送ってすべての行を表示できる', async ({ page }) => {
+  await openSample(page);
+  // 顧客登録にトランザクションファンクションを 250 件足す（サンプルの分と合わせて 250 件を少し超える）
+  await page.evaluate(() => {
+    type Add = (p: { featureId: string; name: string; kind: string; complexity: string; place: boolean }) => string;
+    const s = (window as unknown as { __store: { getState: () => { addTransactionFunction: Add } } }).__store.getState();
+    for (let i = 1; i <= 250; i++) s.addTransactionFunction({ featureId: 'fReg', name: `大量${String(i).padStart(3, '0')}`, kind: 'EI', complexity: 'low', place: false });
+  });
+  await page.getByRole('tab', { name: '台帳' }).click();
+  // データファンクションは 1 ページに収まるので、ページ送りは出さない
+  await expect(page.getByRole('button', { name: '次のページ' })).toHaveCount(0);
+  await page.getByRole('button', { name: /^トランザクション 25\d$/ }).click();
+  await expect(page.getByText(/^1〜100 件目 \/ 全 25\d 件$/)).toBeVisible();
+  await expect(page.getByRole('gridcell', { name: '大量250', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '次のページ' }).click();
+  await expect(page.getByText(/^101〜200 件目 \/ 全 25\d 件$/)).toBeVisible();
+  await page.getByRole('button', { name: '次のページ' }).click();
+  await expect(page.getByText(/^201〜25\d 件目 \/ 全 25\d 件$/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '次のページ' })).toBeDisabled();
+  // 最後の行まで表示できる（画面外の行は描画されないので、スクロールして確かめる）
+  await page.locator('.MuiDataGrid-virtualScroller').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(page.getByRole('gridcell', { name: '大量250', exact: true })).toBeVisible();
+  await shot(page, '35-ledger-paging');
+  // 絞り込んで 1 ページに収まれば、ページ送りは消える
+  await page.getByRole('textbox', { name: '名称で絞り込み' }).fill('大量25');
+  await expect(page.getByRole('gridcell', { name: '大量250', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '次のページ' })).toHaveCount(0);
+
+  // ファンクション表も同じ
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  await expect(page.getByText(/^1〜100 件目 \/ 全 \d+ 件$/)).toBeVisible();
+  await page.getByRole('button', { name: '最後のページ' }).or(page.getByRole('button', { name: '次のページ' })).first().click();
+  await expect(page.getByText(/^101〜200 件目/)).toBeVisible();
+});
