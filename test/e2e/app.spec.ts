@@ -1707,3 +1707,51 @@ test('システム特性の既定値のセットを複数登録し、機能ご�
   await expect(props.getByLabel('既定値のセット')).toHaveCount(0);
   await expect(props.getByLabel('C1 データ通信')).toHaveText('5');
 });
+
+test('すべての DFD を一括で自動整列でき、1 回の Undo で戻る（FR-DF-26）', async ({ page }) => {
+  await openSample(page);
+  type S = { doc: { features: Record<string, { dfd: { nodes: { id: string; x: number; y: number }[] } }> }; moveNodes: (f: string, p: { nodeId: string; x: number; y: number }[]) => void };
+  const positions = () => page.evaluate(() => {
+    const s = (window as unknown as { __store: { getState: () => S } }).__store.getState();
+    return Object.fromEntries(Object.entries(s.doc.features).map(([id, f]) => [id, f.dfd.nodes.map((n) => `${n.x},${n.y}`).join(' ')]));
+  });
+  // どの機能の DFD も、ノードを斜めに並べて崩しておく
+  await page.evaluate(() => {
+    const s = (window as unknown as { __store: { getState: () => S } }).__store.getState();
+    for (const [id, f] of Object.entries(s.doc.features)) s.moveNodes(id, f.dfd.nodes.map((n, i) => ({ nodeId: n.id, x: i * 9, y: i * 280 })));
+  });
+  const before = await positions();
+  const withNodes = Object.keys(before).filter((id) => before[id] !== '');
+  expect(withNodes.length).toBeGreaterThan(1);
+
+  await page.getByRole('button', { name: '一括整列のメニュー' }).click();
+  await page.getByRole('menuitem', { name: 'すべての DFD を一括で整列…' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(`すべての DFD（${withNodes.length} 件）を自動整列しますか`);
+  // キャンセルでは何も変わらない
+  await dialog.getByRole('button', { name: 'キャンセル' }).click();
+  expect(await positions()).toEqual(before);
+
+  await page.getByRole('button', { name: '一括整列のメニュー' }).click();
+  await page.getByRole('menuitem', { name: 'すべての DFD を一括で整列…' }).click();
+  await dialog.getByRole('button', { name: '整列' }).click();
+  await expect(page.getByText(`${withNodes.length} 件の DFD を自動整列しました。`)).toBeVisible();
+  const after = await positions();
+  for (const id of withNodes) expect(after[id], id).not.toBe(before[id]);
+  // 表示中の DFD は全体が収まるように表示し直す
+  await page.waitForTimeout(400);
+  const pane = (await page.locator('.react-flow').boundingBox())!;
+  for (const n of await page.locator(NODE).all()) {
+    const b = (await n.boundingBox())!;
+    expect(b.x >= pane.x && b.x + b.width <= pane.x + pane.width && b.y >= pane.y && b.y + b.height <= pane.y + pane.height).toBe(true);
+  }
+  // DFD タブ以外からも実行でき、1 回の Undo ですべて戻る
+  await page.getByRole('button', { name: /元に戻す/ }).click();
+  expect(await positions()).toEqual(before);
+  await page.getByRole('tab', { name: '一覧' }).click();
+  await expect(page.getByRole('button', { name: '自動整列', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '一括整列のメニュー' }).click();
+  await page.getByRole('menuitem', { name: 'すべての DFD を一括で整列…' }).click();
+  await dialog.getByRole('button', { name: '整列' }).click();
+  expect(await positions()).toEqual(after);
+});

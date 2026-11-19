@@ -351,6 +351,7 @@ export const useStore = create<DocumentSlice & UiSlice>()(
 | DFD | `addEdge` / `updateEdgeLabel` / `removeEdge` | | `canConnect` 済みであることを呼び出し側が保証 |
 | DFD | `connectEntities` | featureId, source, target, label | 実体（refType, refId）同士を接続する。未配置の実体は相手の右隣の空き位置に自動配置し、配置と接続を 1 履歴にする [FR-FN-15] |
 | DFD | `applyLayout` | featureId, {nodeId, x, y}[] | 自動整列の結果を適用。`moveNodes` と同じ更新だが名称で意図を区別 [FR-DF-12] |
+| DFD | `applyLayoutAll` | softwareId | ソフトウェアの要素のあるすべての DFD を整列する（1 履歴）。整列した件数を返す。確認と通知は `Toolbar.tsx` の `LayoutMenu` [FR-DF-26] |
 | DFD | `pasteNodes` | featureId, clipboard | 同一ソフトウェア内のコピー。DF/EE は参照として配置、TF/NCP は複製 [FR-DF-11] |
 | 文書 | `loadDocument` | FpDocument | 読み込み。履歴はクリア |
 | 文書 | `markSaved` / `markBackedUp` | revision | 履歴対象外 |

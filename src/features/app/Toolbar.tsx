@@ -19,6 +19,7 @@ import Tooltip from '@mui/material/Tooltip';
 import { useReactFlow } from '@xyflow/react';
 import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { useStore as useZustand } from 'zustand';
+import { featuresInOrder } from '../../domain/queries';
 import { useStore } from '../../store';
 import { selectIsDirty } from '../../store/selectors';
 import { CommitTextField } from '../common/CommitTextField';
@@ -62,6 +63,8 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
   const [openAnchor, setOpenAnchor] = useState<HTMLElement | null>(null);
   const rf = useReactFlow();
   const dfdActive = activeTab === 'dfd' && !!featureId;
+  // React Flow が新しい位置を取り込んでから全体表示する（1 フレームでは整列前の位置で合わせてしまう）
+  const fitAfterLayout = () => requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView({ ...DFD_FIT_VIEW, duration: 200 })));
 
   return (
     <Box component="header" sx={{ height: 44, background: tokens.surface, borderBottom: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', px: 3, gap: 2, flex: 'none' }}>
@@ -109,12 +112,12 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
         onClick={() => {
           if (!featureId) return;
           applyLayout(featureId);
-          // React Flow が新しい位置を取り込んでから全体表示する（1 フレームでは整列前の位置で合わせてしまう）
-          requestAnimationFrame(() => requestAnimationFrame(() => void rf.fitView({ ...DFD_FIT_VIEW, duration: 200 })));
+          fitAfterLayout();
         }}
       >
         <AccountTreeOutlinedIcon fontSize="small" />
       </ToolButton>
+      <LayoutMenu softwareId={softwareId} onDone={fitAfterLayout} />
       <Sep />
       <Button variant="outlined" color="inherit" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportCsv(softwareId)} disabled={!softwareId} sx={{ borderColor: tokens.borderStrong }}>
         CSV出力
@@ -128,6 +131,53 @@ export function Toolbar({ onOpenSettings, onOpenBackups, onToggleProperties, sho
         <Button color="inherit" startIcon={<TuneIcon />} onClick={onToggleProperties}>プロパティ</Button>
       )}
     </Box>
+  );
+}
+
+/**
+ * 自動整列の ▼ のメニュー。ソフトウェアのすべての DFD を一括で整列する（FR-DF-26）。
+ * 手で整えた配置を置き換えるので、件数を示して確認する。1 回の Undo で戻せる。
+ */
+function LayoutMenu({ softwareId, onDone }: { softwareId: string | null; onDone: () => void }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const layoutAll = () => {
+    setAnchor(null);
+    if (!softwareId) return;
+    const s = useStore.getState();
+    const count = featuresInOrder(s.doc, softwareId).filter((f) => f.dfd.nodes.length > 0).length;
+    if (!count) {
+      s.notify('整列する DFD がありません。', 'info');
+      return;
+    }
+    s.openConfirm({
+      title: `すべての DFD（${count} 件）を自動整列しますか`,
+      message: `「${s.doc.softwares[softwareId]?.name ?? ''}」の、要素のあるすべての機能の DFD を整列します。手で整えた配置は置き換わります。1 回の「元に戻す」で、すべて元の配置に戻せます。`,
+      actions: [
+        { label: 'キャンセル' },
+        {
+          label: '整列', variant: 'contained',
+          onClick: () => {
+            const n = useStore.getState().applyLayoutAll(softwareId);
+            useStore.getState().notify(`${n} 件の DFD を自動整列しました。`, 'success');
+            onDone();
+          },
+        },
+      ],
+    });
+  };
+  return (
+    <>
+      <Tooltip title="一括整列のメニュー">
+        <span>
+          <IconButton aria-label="一括整列のメニュー" aria-haspopup="menu" disabled={!softwareId} onClick={(e) => setAnchor(e.currentTarget)} sx={{ width: 18, height: 32, ml: -1, borderRadius: '3px', '&:hover': { background: tokens.primarySoft } }}>
+            <ArrowDropDownIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        <MenuItem dense onClick={layoutAll}>すべての DFD を一括で整列…</MenuItem>
+      </Menu>
+    </>
   );
 }
 

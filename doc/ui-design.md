@@ -139,6 +139,7 @@ MUI: `spacing: 4`、`shape.borderRadius: 3`、`components.MuiButton.defaultProps
 - 中央: アイコンボタン群をグループごとに 1px 縦罫線で区切る。「新規・開く・保存」「Undo・Redo」「自動整列」「CSV 出力・SVG 出力」「設定」。
 - アイコンボタンは 32×32、ホバーで `--color-primary-soft` 背景。ツールチップにショートカットを併記（例: 「保存 ⌘S」）。
 - Undo/Redo は履歴がないとき disabled。自動整列・SVG 出力は DFD タブ以外では disabled。
+- 自動整列の右に ▼ のメニューボタン（幅 18px）を置き、「すべての DFD を一括で整列…」を選べる [FR-DF-26]。ソフトウェアを選んでいれば、どのタブでも有効。確認ダイアログ（件数、手で整えた配置が置き換わること、1 回の Undo で戻せること）を経て整列し、Snackbar で件数を知らせる。
 
 ### 4.2 FeatureTree
 

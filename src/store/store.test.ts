@@ -126,6 +126,32 @@ describe('store', () => {
     expect(store.getState().doc.features.fReg.dfd.nodes.map((n) => [n.x, n.y])).toEqual(before);
   });
 
+  it('applyLayoutAll: ソフトウェアのすべての DFD を整列し、1 回の Undo ですべて戻る（FR-DF-26）', () => {
+    const store = setup();
+    const positions = () => Object.fromEntries(Object.values(store.getState().doc.features).map((f) => [f.id, f.dfd.nodes.map((n) => [n.x, n.y])]));
+    // どの DFD も整列後の配置からずらしておく
+    for (const f of Object.values(store.getState().doc.features)) {
+      store.getState().moveNodes(f.id, f.dfd.nodes.map((n, i) => ({ nodeId: n.id, x: i * 7, y: i * 300 })));
+    }
+    const before = positions();
+    const withNodes = Object.values(store.getState().doc.features).filter((f) => f.dfd.nodes.length > 0);
+    expect(withNodes.length).toBeGreaterThan(1);
+    expect(store.getState().applyLayoutAll('sw1')).toBe(withNodes.length);
+    const after = positions();
+    for (const f of withNodes) expect(after[f.id], f.id).not.toEqual(before[f.id]);
+    // 1 件ずつ整列した結果と同じ
+    const single = setup();
+    for (const f of Object.values(single.getState().doc.features)) {
+      single.getState().moveNodes(f.id, f.dfd.nodes.map((n, i) => ({ nodeId: n.id, x: i * 7, y: i * 300 })));
+      single.getState().applyLayout(f.id);
+    }
+    expect(after).toEqual(Object.fromEntries(Object.values(single.getState().doc.features).map((f) => [f.id, f.dfd.nodes.map((n) => [n.x, n.y])])));
+    undo(store);
+    expect(positions()).toEqual(before);
+    // 存在しないソフトウェアでは何もしない
+    expect(store.getState().applyLayoutAll('none')).toBe(0);
+  });
+
   it('connectEntities: 未配置の実体は自動配置し、配置と接続を 1 履歴にする（FR-FN-15）', () => {
     const store = setup();
     // 顧客検索（fSearch）の DFD は空。TF-004 → TF-005 を接続

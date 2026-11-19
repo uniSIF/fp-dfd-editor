@@ -202,6 +202,8 @@ export interface DocumentSlice {
   updateEdgeLabel: (featureId: Id, edgeId: Id, label: string) => void;
   removeEdges: (featureId: Id, edgeIds: Id[]) => void;
   applyLayout: (featureId: Id) => void;
+  /** ソフトウェアのすべての DFD（要素のあるもの）を自動整列する（1 履歴。FR-DF-26）。整列した DFD の数を返す */
+  applyLayoutAll: (softwareId: Id) => number;
   /**
    * 選択の一括削除（1 履歴）。TF / NCP は実体ごと削除、DF / EE は mode に従う。
    * mode='delete' で参照されている DF / EE は配置解除にとどめ、その名前を skipped に返す。

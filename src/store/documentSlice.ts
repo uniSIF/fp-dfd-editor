@@ -3,7 +3,7 @@ import { canConnect, canConnectNodes, canPlaceMultiple, ruleKindOf } from '../do
 import { findFreePosition, nodeSize } from '../domain/dfdGeometry';
 import { createSoftware, emptyDocument } from '../domain/emptyDocument';
 import { formatDisplayNo, newId } from '../domain/ids';
-import { appliedCharacteristicPreset, characteristicPresets, refName, softwareIdOfFeature } from '../domain/queries';
+import { appliedCharacteristicPreset, characteristicPresets, featuresInOrder, refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
 import type { DataFunctionKind, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
@@ -960,6 +960,11 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         dfd.edges = dfd.edges.filter((e) => !ids.has(e.id));
       }),
     applyLayout: (featureId) => mutate((d) => layoutOnDraft(d, featureId)),
+    applyLayoutAll: (softwareId) => {
+      const targets = featuresInOrder(get().doc, softwareId).filter((f) => f.dfd.nodes.length > 0).map((f) => f.id);
+      if (targets.length) mutate((d) => { for (const id of targets) layoutOnDraft(d, id); });
+      return targets.length;
+    },
     deleteSelection: (featureId, nodeIds, edgeIds, mode) => {
       const skipped: string[] = [];
       const state = get();
