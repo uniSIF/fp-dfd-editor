@@ -59,11 +59,11 @@ export const fpDocumentSchema = z.object({
   features: z.record(z.string(), feature),
   dataFunctions: z.record(z.string(), z.object({
     id, softwareId: id, displayNo: z.string(), name: z.string(),
-    kind: z.enum(['ILF', 'EIF']), complexity, ownerFeatureId: id.nullable(), description: z.string().default(''),
+    kind: z.enum(['ILF', 'EIF']), complexity, ownerFeatureId: id.nullable(), description: z.string().default(''), complexityNote: z.string().optional(),
   })),
   transactionFunctions: z.record(z.string(), z.object({
     id, featureId: id, displayNo: z.string(), name: z.string(),
-    kind: z.enum(['EI', 'EO', 'EQ']), complexity, description: z.string().default(''),
+    kind: z.enum(['EI', 'EO', 'EQ']), complexity, description: z.string().default(''), complexityNote: z.string().optional(),
   })),
   nonCountedProcesses: z.record(z.string(), z.object({ id, featureId: id, name: z.string(), description: z.string().default('') })),
   externalEntities: z.record(z.string(), z.object({ id, softwareId: id, displayNo: z.string(), name: z.string(), description: z.string().default('') })),

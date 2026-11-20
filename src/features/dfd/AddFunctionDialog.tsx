@@ -31,7 +31,7 @@ export interface AddRequest {
   /** DFD 上の配置位置。未指定なら空き位置に自動配置 */
   position?: { x: number; y: number };
   /** 複製時の初期値（FR-FN-14）。指定すると「複製」ダイアログとして開く */
-  duplicateOf?: { name: string; kind: TransactionKind | DataFunctionKind | null; complexity: Complexity | null; description: string };
+  duplicateOf?: { name: string; kind: TransactionKind | DataFunctionKind | null; complexity: Complexity | null; description: string; complexityNote?: string };
 }
 
 const DUPLICATE_TITLES: Record<AddKind, string> = {
@@ -55,6 +55,7 @@ export function AddFunctionDialog({ featureId, request, onClose, onAdded }: {
   const [dKind, setDKind] = useState<DataFunctionKind>(kind === 'DF' && src?.kind ? (src.kind as DataFunctionKind) : 'ILF');
   const [complexity, setComplexity] = useState<Complexity>(src?.complexity ?? 'low');
   const [description, setDescription] = useState(src?.description ?? '');
+  const [complexityNote, setComplexityNote] = useState(src?.complexityNote ?? '');
   // 複製時は名称を 1 度だけ全選択する（ダイアログのフォーカス制御で onFocus が再発火しても入力を消さない）
   const selectedOnce = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -76,8 +77,8 @@ export function AddFunctionDialog({ featureId, request, onClose, onAdded }: {
     const s = useStore.getState();
     const place = request.position ?? true;
     let id: Id;
-    if (kind === 'TF') id = s.addTransactionFunction({ featureId, name: n, kind: tKind, complexity, description, place });
-    else if (kind === 'DF') id = s.addDataFunction({ featureId, name: n, kind: dKind, complexity, description, place });
+    if (kind === 'TF') id = s.addTransactionFunction({ featureId, name: n, kind: tKind, complexity, description, complexityNote: complexityNote.trim(), place });
+    else if (kind === 'DF') id = s.addDataFunction({ featureId, name: n, kind: dKind, complexity, description, complexityNote: complexityNote.trim(), place });
     else if (kind === 'NCP') id = s.addNonCountedProcess({ featureId, name: n, description, place });
     else id = s.addExternalEntity({ featureId, name: n, description, place });
     onAdded?.(id);
@@ -126,6 +127,14 @@ export function AddFunctionDialog({ featureId, request, onClose, onAdded }: {
                 <ToggleButton key={c} value={c}>{COMPLEXITY_LABELS[c]}</ToggleButton>
               ))}
             </ToggleButtonGroup>
+          </Field>
+        )}
+        {(kind === 'TF' || kind === 'DF') && (
+          <Field label="複雑度の推測（任意）">
+            <TextField
+              fullWidth multiline minRows={1} maxRows={4} value={complexityNote} onChange={(e) => setComplexityNote(e.target.value)}
+              placeholder="例: DET 16・FTR 1 と推定し中" slotProps={{ htmlInput: { 'aria-label': '複雑度の推測' } }}
+            />
           </Field>
         )}
         <Field label="説明（任意）">

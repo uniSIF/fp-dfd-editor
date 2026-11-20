@@ -483,6 +483,100 @@ describe('AI エージェントとの交換形式（FR-IO）', () => {
     expect(findBrokenReferences(store.getState().doc)).toEqual([]);
   });
 
+  it('システム特性の既定値のセットを書き出し、返された名前のセットを機能に適用する（FR-IO-11）', () => {
+    const store = createAppStore(sampleDocument());
+    const sw = store.getState().doc.softwares.sw1;
+    const batch = { id: 'pBatch', name: 'バッチ処理', values: Array(14).fill(1) };
+    store.getState().updateSettings('sw1', { characteristicPresets: [batch] });
+    const doc = store.getState().doc;
+    const standard = [...sw.settings.defaultCharacteristics];
+    const ex = JSON.parse(JSON.stringify(buildExchange(doc, ['fReg', 'fSearch'])));
+    // 機能ごとの適用中のセットと、選べるセットの一覧（値は C1〜C14 の順）を渡す
+    expect(ex.features.map((f: { characteristicPreset: string }) => f.characteristicPreset)).toEqual(['標準', '標準']);
+    expect(ex.catalog.characteristicPresets).toEqual([{ name: '標準', values: standard }, { name: 'バッチ処理', values: batch.values }]);
+    expect(ex.catalog.characteristics).toHaveLength(14);
+    expect(ex.catalog.characteristics[0]).toBe('C1 データ通信');
+    // そのまま返せば変更なし
+    expect(planHasChanges(planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true }))).toBe(false);
+
+    // 顧客検索だけ「バッチ処理」にし、新しい機能にも指定する。登録にない名前は警告して適用しない
+    ex.features[1].characteristicPreset = 'バッチ処理';
+    ex.features[0].characteristicPreset = '存在しないセット';
+    ex.features.push({
+      key: 'new-1', name: '夜間集計', category1: '顧客管理', category2: '顧客情報', characteristicPreset: 'バッチ処理',
+      dfd: { transactionFunctions: [{ key: 'T-1', name: '夜間集計処理', kind: 'EO', complexity: 'low' }] },
+    });
+    ex.features.push({
+      key: 'new-2', name: '標準の機能', category1: '顧客管理', category2: '顧客情報',
+      dfd: { transactionFunctions: [{ key: 'T-2', name: '標準の処理', kind: 'EQ', complexity: 'low' }] },
+    });
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(plan.errors).toEqual([]);
+    expect(plan.warnings.join('\n')).toContain('「存在しないセット」は登録されていない');
+    expect(plan.features[0].featureChanges).toEqual([]);
+    expect(plan.features[1].featureChanges).toEqual(['システム特性の既定値のセット 標準 → バッチ処理（C1〜C14 を上書き）']);
+    expect(featurePlanHasChanges(plan.features[1], plan)).toBe(true);
+    expect(plan.features[2].featureChanges).toContain('システム特性の既定値のセット バッチ処理');
+    expect(plan.features[3].featureChanges).toContain('システム特性の既定値のセット 標準');
+
+    expect(store.getState().applyImportPlan('sw1', plan, { layout: false }).ok).toBe(true);
+    const after = store.getState().doc;
+    const byName = (name: string) => Object.values(after.features).find((f) => f.name === name)!;
+    expect(after.features.fSearch).toMatchObject({ characteristics: batch.values, characteristicPresetId: 'pBatch' });
+    expect(after.features.fReg.characteristics).toEqual(standard);
+    expect(byName('夜間集計')).toMatchObject({ characteristics: batch.values, characteristicPresetId: 'pBatch' });
+    expect(byName('標準の機能').characteristics).toEqual(standard);
+    // 1 回の Undo で戻る
+    undo(store);
+    expect(store.getState().doc.features.fSearch.characteristics).toEqual(standard);
+
+    // 個別に変えた値は、同じセットの名前のまま返されても上書きしない。標準へ戻す指定は反映する
+    store.getState().applyCharacteristicPreset('fSearch', 'pBatch');
+    store.getState().updateFeature('fSearch', { characteristics: Array(14).fill(5) });
+    const doc2 = store.getState().doc;
+    const ex2 = JSON.parse(JSON.stringify(buildExchange(doc2, ['fSearch'])));
+    expect(ex2.features[0].characteristicPreset).toBe('バッチ処理');
+    expect(planHasChanges(planImport(doc2, 'sw1', parse(JSON.stringify(ex2)), { removeMissing: true }))).toBe(false);
+    ex2.features[0].characteristicPreset = '標準';
+    const back = planImport(doc2, 'sw1', parse(JSON.stringify(ex2)), { removeMissing: true });
+    expect(back.features[0].characteristicPresetId).toBeNull();
+    store.getState().applyImportPlan('sw1', back, { layout: false });
+    expect(store.getState().doc.features.fSearch).toMatchObject({ characteristics: standard, characteristicPresetId: null });
+    // 項目がなければ変えない
+    delete ex2.features[0].characteristicPreset;
+    expect(planImport(store.getState().doc, 'sw1', parse(JSON.stringify(ex2)), { removeMissing: true }).features[0].characteristicPresetId).toBeUndefined();
+  });
+
+  it('複雑度の推測を書き出し、返された内容を取り込む（FR-FN-20）', () => {
+    const store = createAppStore(sampleDocument());
+    store.getState().updateTransactionFunction('tf1', { complexityNote: 'DET 12・FTR 1 と推定し中' });
+    const doc = store.getState().doc;
+    const ex = JSON.parse(JSON.stringify(buildExchange(doc, ['fReg'])));
+    const dfd = ex.features[0].dfd;
+    expect(dfd.transactionFunctions.find((t: { key: string }) => t.key === 'TF-001').complexityNote).toBe('DET 12・FTR 1 と推定し中');
+    expect(dfd.dataFunctions.find((d: { key: string }) => d.key === 'DF-001').complexityNote).toBe('');
+    // そのまま返せば変更なし
+    expect(planHasChanges(planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true }))).toBe(false);
+
+    // 既存の要素の推測を書き換え、新しい要素にも付ける。空で返したものは消さない
+    dfd.dataFunctions.find((d: { key: string }) => d.key === 'DF-001').complexityNote = 'RET 2・DET 25 で中';
+    dfd.transactionFunctions.find((t: { key: string }) => t.key === 'TF-001').complexityNote = '';
+    dfd.transactionFunctions.push({ key: 'N-1', name: '顧客取込', kind: 'EI', complexity: 'high', complexityNote: 'DET 20・FTR 2 と推定し高', description: 'CSV を取り込む' });
+    dfd.dataFlows.push({ from: 'N-1', to: 'DF-001', label: '顧客データ' });
+    const plan = planImport(doc, 'sw1', parse(JSON.stringify(ex)), { removeMissing: true });
+    expect(plan.errors).toEqual([]);
+    expect(plan.updates).toEqual([expect.objectContaining({ key: 'DF-001', changes: ['複雑度の推測'], patch: { complexityNote: 'RET 2・DET 25 で中' } })]);
+    store.getState().applyImportPlan('sw1', plan, { layout: false });
+    const after = store.getState().doc;
+    expect(after.dataFunctions.df1.complexityNote).toBe('RET 2・DET 25 で中');
+    expect(after.transactionFunctions.tf1.complexityNote).toBe('DET 12・FTR 1 と推定し中');
+    expect(Object.values(after.transactionFunctions).find((x) => x.name === '顧客取込')).toMatchObject({ complexity: 'high', complexityNote: 'DET 20・FTR 2 と推定し高', description: 'CSV を取り込む' });
+    // 保存ファイルにも残り、項目のない古いファイルも読める
+    const saved = parseDocumentJson(JSON.stringify(after));
+    expect(saved.ok && saved.value.dataFunctions.df1.complexityNote).toBe('RET 2・DET 25 で中');
+    expect(parseDocumentJson(JSON.stringify(sampleDocument())).ok).toBe(true);
+  });
+
   it('版 1（1 機能）の JSON も読み、壊れた入力には理由を返す', () => {
     const v1 = parse(JSON.stringify({ format: 'fp-dfd-exchange', version: 1, feature: { key: 'fReg' }, dfd: { externalEntities: [{ key: 'EE-001', name: '利用者' }] } }));
     expect(v1.features).toHaveLength(1);

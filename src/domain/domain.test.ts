@@ -53,10 +53,16 @@ describe('csvExport（FR-CSV）', () => {
     expect(escapeCsv('普通')).toBe('普通');
   });
   it('台帳 CSV（FR-ID-06）', () => {
-    const lines = buildLedgerCsv(sampleDocument(), 'sw1').slice(1).split('\r\n');
-    expect(lines[0]).toBe('No,名称,種別,複雑度,FP,所有／所属機能,参照している機能,説明');
-    expect(lines[2]).toBe('DF-002,商品マスタ,ILF,低,7,商品管理 / 商品情報 / 商品登録,顧客登録,商品コード・名称・単価を保持する。');
+    const doc = sampleDocument();
+    // 複雑度の推測は最後の列に出す（カンマを含めばクォートする）
+    doc.dataFunctions.df2.complexityNote = 'RET 1, DET 12 と推定し低';
+    doc.transactionFunctions.tf1.complexityNote = 'DET 16・FTR 1 で中';
+    const lines = buildLedgerCsv(doc, 'sw1').slice(1).split('\r\n');
+    expect(lines[0]).toBe('No,名称,種別,複雑度,FP,所有／所属機能,参照している機能,説明,複雑度の推測');
+    expect(lines[1].endsWith(',')).toBe(true); // 推測のないファンクションは空
+    expect(lines[2]).toBe('DF-002,商品マスタ,ILF,低,7,商品管理 / 商品情報 / 商品登録,顧客登録,商品コード・名称・単価を保持する。,"RET 1, DET 12 と推定し低"');
     expect(lines[3].startsWith('TF-001,顧客登録入力,EI,中,4,顧客管理 / 顧客情報 / 顧客登録,,')).toBe(true);
+    expect(lines[3].endsWith(',DET 16・FTR 1 で中')).toBe(true);
   });
 });
 

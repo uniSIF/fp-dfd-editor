@@ -1856,3 +1856,43 @@ test('表示中に例外が起きても画面全体は消えず、ほかの機�
   await expect(page.getByRole('button', { name: 'ファイルに保存' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /再読み込み/ })).toBeVisible();
 });
+
+test('ファンクションに複雑度の推測を記入でき、表・台帳・台帳 CSV に出る（FR-FN-20）', async ({ page }) => {
+  await openSample(page);
+  const props = page.getByRole('complementary', { name: 'プロパティ' });
+  // DFD でトランザクションを選び、プロパティで記入する
+  await page.locator('.react-flow__node[data-id="n2"]').click(); // 顧客登録入力（TF-001）
+  await props.getByRole('textbox', { name: '複雑度の推測' }).fill('DET 16・FTR 1 と推定し中');
+  await props.getByRole('textbox', { name: '複雑度の推測' }).blur();
+  // 外部エンティティには欄がない
+  await page.locator('.react-flow__node[data-id="n1"]').click();
+  await expect(props.getByRole('textbox', { name: '複雑度の推測' })).toHaveCount(0);
+
+  // ファンクション表に出て、表でも編集できる
+  await page.getByRole('tab', { name: 'ファンクション表' }).click();
+  const row = page.getByRole('row').filter({ hasText: 'TF-001' });
+  await expect(row).toContainText('DET 16・FTR 1 と推定し中');
+  const dfRow = page.getByRole('row').filter({ hasText: 'DF-001' });
+  await dfRow.getByText('推測を追加').dblclick();
+  await page.keyboard.type('RET 1・DET 20 で低');
+  await page.keyboard.press('Enter');
+  await expect(dfRow).toContainText('RET 1・DET 20 で低');
+
+  // 追加ダイアログでも記入できる
+  await page.getByRole('button', { name: '＋ トランザクション' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: '名称' }).fill('顧客削除');
+  await dialog.getByRole('textbox', { name: '複雑度の推測' }).fill('DET 3・FTR 1 で低');
+  await dialog.getByRole('button', { name: /追加/ }).click();
+  await expect(page.getByRole('row').filter({ hasText: '顧客削除' })).toContainText('DET 3・FTR 1 で低');
+
+  // 台帳と台帳 CSV に出る
+  await page.getByRole('tab', { name: '台帳' }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'DF-001' })).toContainText('RET 1・DET 20 で低');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('main').getByRole('button', { name: 'CSV出力' }).click()]);
+  const csv = readFileSync((await dl.path())!, 'utf-8');
+  expect(csv.split('\r\n')[0]).toContain('説明,複雑度の推測');
+  expect(csv).toContain(',RET 1・DET 20 で低\r\n');
+  expect(csv).toContain(',DET 16・FTR 1 と推定し中\r\n');
+  expect(csv).toContain(',DET 3・FTR 1 で低\r\n');
+});

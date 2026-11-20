@@ -7,7 +7,7 @@ import { entityExists, repairReferences, repairReferencesInPlace } from '../doma
 import { appliedCharacteristicPreset, characteristicPresets, featuresInOrder, refName, softwareIdOfFeature } from '../domain/queries';
 import { replaceText } from '../domain/textReplace';
 import { entityKey as entityKeyOnDraft, featurePlanHasChanges } from '../domain/exchange';
-import type { DataFunctionKind, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
+import type { DataFunctionKind, DfdNode, Feature, FpDocument, Id, NodeRefType, TransactionKind } from '../domain/types';
 import type { ActionResult, AppState, DataFunctionDisposition, DocumentSlice, EntityRef, PlaceOption } from './types';
 
 export type ImmerSet = (fn: (s: AppState) => void) => void;
@@ -400,23 +400,24 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
         f.characteristicPresetId = preset.id;
       }),
 
-    addDataFunction: ({ featureId, name, kind, complexity, description = '', place }) => {
+    addDataFunction: ({ featureId, name, kind, complexity, description = '', complexityNote, place }) => {
       const id = newId();
       mutate((d) => {
         const swId = requireSoftwareId(d, featureId);
         d.dataFunctions[id] = {
           id, softwareId: swId, displayNo: nextDisplayNo(d, swId, 'DF'), name, kind, complexity, ownerFeatureId: featureId, description,
+          ...(complexityNote ? { complexityNote } : {}),
         };
         placeOnDraft(d, featureId, 'dataFunction', id, place);
       });
       return id;
     },
     updateDataFunction: (id, patch) => mutate((d) => { Object.assign(d.dataFunctions[id], patch); }),
-    addTransactionFunction: ({ featureId, name, kind, complexity, description = '', place }) => {
+    addTransactionFunction: ({ featureId, name, kind, complexity, description = '', complexityNote, place }) => {
       const id = newId();
       mutate((d) => {
         const swId = requireSoftwareId(d, featureId);
-        d.transactionFunctions[id] = { id, featureId, displayNo: nextDisplayNo(d, swId, 'TF'), name, kind, complexity, description };
+        d.transactionFunctions[id] = { id, featureId, displayNo: nextDisplayNo(d, swId, 'TF'), name, kind, complexity, description, ...(complexityNote ? { complexityNote } : {}) };
         placeOnDraft(d, featureId, 'transactionFunction', id, place);
       });
       return id;
@@ -723,10 +724,18 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           return c2.id;
         };
         const featureOf = new Map<string, Id>();
+        /** システム特性の既定値のセットを適用する（undefined は変えない。applyCharacteristicPreset と同じ） */
+        const applyPreset = (f: Feature, presetId: Id | null | undefined) => {
+          const preset = presetId === undefined ? undefined : characteristicPresets(sw.settings).find((p) => p.id === presetId);
+          if (!preset) return;
+          f.characteristics = [...preset.values];
+          f.characteristicPresetId = preset.id;
+        };
         for (const fp of plan.features) {
           if (fp.featureId) {
             featureOf.set(fp.key, fp.featureId);
             Object.assign(d.features[fp.featureId], fp.featurePatch);
+            applyPreset(d.features[fp.featureId], fp.characteristicPresetId);
             continue;
           }
           const id = newId();
@@ -737,6 +746,7 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           };
           d.category2s[category2Id].featureIds.push(id);
           featureOf.set(fp.key, id);
+          applyPreset(d.features[id], fp.characteristicPresetId);
         }
         // 2. 出力にない要素・データフローの削除（削除を選んだときだけプランに入っている）
         for (const fp of plan.features) {
@@ -756,11 +766,11 @@ export function createDocumentSlice(set: ImmerSet, get: Get, initial: FpDocument
           const id = newId();
           const fid = c.featureKey ? featureOf.get(c.featureKey)! : null;
           if (c.refType === 'transactionFunction') {
-            d.transactionFunctions[id] = { id, featureId: fid!, displayNo: nextDisplayNo(d, softwareId, 'TF'), name: c.name, kind: c.kind as TransactionKind, complexity: c.complexity!, description: c.description };
+            d.transactionFunctions[id] = { id, featureId: fid!, displayNo: nextDisplayNo(d, softwareId, 'TF'), name: c.name, kind: c.kind as TransactionKind, complexity: c.complexity!, description: c.description, ...(c.complexityNote ? { complexityNote: c.complexityNote } : {}) };
           } else if (c.refType === 'dataFunction') {
             d.dataFunctions[id] = {
               id, softwareId, displayNo: nextDisplayNo(d, softwareId, 'DF'), name: c.name, kind: c.kind as DataFunctionKind, complexity: c.complexity!,
-              ownerFeatureId: fid ?? c.ownerFeatureId ?? null, description: c.description,
+              ownerFeatureId: fid ?? c.ownerFeatureId ?? null, description: c.description, ...(c.complexityNote ? { complexityNote: c.complexityNote } : {}),
             };
           } else if (c.refType === 'nonCountedProcess') {
             d.nonCountedProcesses[id] = { id, featureId: fid!, name: c.name, description: c.description };

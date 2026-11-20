@@ -58,7 +58,7 @@ export function buildCsv(doc: FpDocument, softwareId: Id): string {
 
 /** ファンクション台帳 CSV（FR-ID-06） */
 export function buildLedgerCsv(doc: FpDocument, softwareId: Id): string {
-  const rows: (string | number)[][] = [['No', '名称', '種別', '複雑度', 'FP', '所有／所属機能', '参照している機能', '説明']];
+  const rows: (string | number)[][] = [['No', '名称', '種別', '複雑度', 'FP', '所有／所属機能', '参照している機能', '説明', '複雑度の推測']];
   const featureName = (id: Id) => doc.features[id]?.name ?? '';
   const dfs = Object.values(doc.dataFunctions)
     .filter((d) => d.softwareId === softwareId)
@@ -68,7 +68,7 @@ export function buildLedgerCsv(doc: FpDocument, softwareId: Id): string {
       d.displayNo, d.name, d.kind, COMPLEXITY_LABELS[d.complexity], FP_WEIGHTS[d.kind][d.complexity],
       d.ownerFeatureId ? featurePathLabel(doc, d.ownerFeatureId) : '未設定',
       referencingFeatures(doc, 'dataFunction', d.id).map(featureName).join(';'),
-      d.description,
+      d.description, d.complexityNote ?? '',
     ]);
   }
   const featureIds = new Set(featuresInOrder(doc, softwareId).map((f) => f.id));
@@ -78,7 +78,7 @@ export function buildLedgerCsv(doc: FpDocument, softwareId: Id): string {
   for (const t of tfs) {
     rows.push([
       t.displayNo, t.name, t.kind, COMPLEXITY_LABELS[t.complexity], FP_WEIGHTS[t.kind][t.complexity],
-      featurePathLabel(doc, t.featureId), '', t.description,
+      featurePathLabel(doc, t.featureId), '', t.description, t.complexityNote ?? '',
     ]);
   }
   return toCsv(rows);

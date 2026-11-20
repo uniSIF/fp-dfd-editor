@@ -30,7 +30,7 @@ import { PlaceReferencesDialog } from './PlaceReferencesDialog';
 import { DfdPreview, usePreviewPrefs } from './DfdPreview';
 import type { EntityRef } from '../../store';
 
-function updateRow(row: FunctionRow, patch: Partial<{ name: string; kind: string; complexity: Complexity; description: string }>) {
+function updateRow(row: FunctionRow, patch: Partial<{ name: string; kind: string; complexity: Complexity; description: string; complexityNote: string }>) {
   const s = useStore.getState();
   switch (row.refType) {
     case 'dataFunction':
@@ -79,7 +79,7 @@ function duplicateRequest(featureId: Id, row: FunctionRow): AddRequest {
   return {
     kind: ADD_KIND[row.refType],
     position: node ? { x: node.x, y: node.y + nodeSize(node.refType, row.name).height + 64 } : undefined,
-    duplicateOf: { name: row.name, kind: row.kind, complexity: row.complexity, description: row.description },
+    duplicateOf: { name: row.name, kind: row.kind, complexity: row.complexity, description: row.description, complexityNote: row.complexityNote },
   };
 }
 
@@ -152,7 +152,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
 
   const editable = (row: FunctionRow, field: string) => {
     if (row.isReference) return false;
-    if (field === 'kind' || field === 'complexity') return row.refType === 'dataFunction' || row.refType === 'transactionFunction';
+    if (field === 'kind' || field === 'complexity' || field === 'complexityNote') return row.refType === 'dataFunction' || row.refType === 'transactionFunction';
     return true;
   };
 
@@ -189,6 +189,17 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
       valueFormatter: (v: Complexity | null) => (v ? COMPLEXITY_LABELS[v] : '—'),
     },
     { field: 'fp', headerName: 'FP', width: 52, align: 'right', headerAlign: 'right', sortable: false, valueFormatter: (v: number | null) => (v === null ? '—' : String(v)) },
+    {
+      field: 'complexityNote', headerName: '複雑度の推測', width: 150, editable: true, sortable: false,
+      renderCell: ({ row }: GridRenderCellParams<FunctionRow>) =>
+        row.complexityNote ? (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{row.complexityNote}</span>}>
+            <span style={{ fontSize: 12, color: tokens.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{row.complexityNote}</span>
+          </Tooltip>
+        ) : (
+          row.complexity && !row.isReference && <span style={{ fontSize: 12, color: tokens.textDisabled }}>推測を追加</span>
+        ),
+    },
     {
       field: 'description', headerName: '説明', flex: 1, minWidth: 130, editable: true, sortable: false,
       renderCell: ({ row }: GridRenderCellParams<FunctionRow>) =>
@@ -337,7 +348,7 @@ export function FunctionTable({ featureId }: { featureId: Id }) {
           isCellEditable={({ row, field }) => editable(row, field)}
           processRowUpdate={(next, prev) => {
             const patch: Record<string, unknown> = {};
-            for (const k of ['name', 'kind', 'complexity', 'description'] as const) {
+            for (const k of ['name', 'kind', 'complexity', 'description', 'complexityNote'] as const) {
               if (next[k] !== prev[k]) patch[k] = k === 'name' ? String(next[k]).trim() || prev.name : next[k];
             }
             if (Object.keys(patch).length) updateRow(prev, patch);

@@ -923,6 +923,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-DF-24 | `domain/dfdGeometry.ts`（`nodeLayout` / `nodeSize(refType, name)`）、`DfdNodes.tsx`、`svgExport.ts`、`autoLayout.ts`（`nameOf`） |
 | FR-FN-18 | 4.2（`copyFunctions`）、`features/functions/CopyFunctionsDialog.tsx`、`FunctionTable.tsx`（`checkboxSelection`） |
 | FR-FN-19 | 4.2（`placeReferences`）、`features/functions/PlaceReferencesDialog.tsx`、`FunctionTable.tsx`（選択した行の操作バー） |
+| FR-FN-20 | 3（`DataFunction.complexityNote`・`TransactionFunction.complexityNote`。省略可で、スキーマのバージョンは上げない）、4.2（`add*` / `update*` の `complexityNote`）、7.2（PropertyPanel、FunctionTable、FunctionLedger、AddFunctionDialog）、9.1（`buildLedgerCsv` の最後の列）、`domain/exchange.ts`（`complexityNote` の書き出しと取り込み）、`domain/agentPrompt.ts` |
 | FR-ID-07 | `features/app/commands.ts`（`transferDataFunctionOwner`。ストアは `updateDataFunction`）、`PropertyPanel.tsx`（`PlacedFeatures`）、`FunctionTable.tsx`（参照行の操作） |
 | FR-ID-08 | `features/summary/FunctionLedger.tsx`（`deleteRow`。ストアは `removeEntity`、確認は `openConfirm`） |
 | FR-CT-06 | `domain/queries.ts`（`featureIdsUnder` / `dataFunctionsOwnedBy`）、4.2（`removeFeature` / `removeCategory` の `DataFunctionDisposition`）、`features/tree/DeleteFeaturesDialog.tsx` |
@@ -936,6 +937,7 @@ export function validateSoftware(doc: FpDocument, softwareId: Id): Warning[];
 | FR-IO-08 | `features/agent/AgentExportDialog.tsx`（`fullScreen`、左に機能の一覧と絞り込み、右に依頼・コピー・エージェントの設定。`setShown` で表示中の機能だけ選択を変える） |
 | FR-IO-09 | `domain/agentPrompt.ts`（指示を共通の部品から組み立てる。`FP_BOOST_INSTRUCTIONS`、`AGENTS`、`buildAgentInstructions(notes, agent)`・`buildAgentRequest(…, agent)`）、`AgentExportDialog.tsx`（「使うエージェント」の切り替え）、`doc/copilot-agent.md`（2 つ目の指示ブロック。単体テストで一致を確認） |
 | FR-IO-10、FR-SV-10 | 8.6（`domain/integrity.ts`、`exchange.ts` の `ImportPlan.fixes`・`buildFixInstruction`、`features/app/ErrorBoundary.tsx`） |
+| FR-IO-11 | `domain/exchange.ts`（`buildExchange` の `characteristicPreset`・`catalog.characteristicPresets`・`catalog.characteristics`、`planImport` の `FeaturePlan.characteristicPresetId`）、4.2（`applyImportPlan` が `applyCharacteristicPreset` と同じくセットの値をコピーして記録する）、`domain/agentPrompt.ts`（指示文） |
 | FR-FN-17 | `domain/textReplace.ts`（`planTextReplacements`）、4.2（`applyTextReplacements`）、`features/functions/ReplaceTextDialog.tsx` |
 | FR-DF-19 | `domain/dfdGeometry.ts`（`computeBoundary`、`isInsideBoundary`）、`features/dfd/rfMapping.ts`（`withBoundary`）、`BoundaryNode`、9.2（SVG の境界）、6.6（自動整列の後処理） |
 | FR-DF-18 | `domain/dfdRules.ts`（`canPlaceMultiple`）、4.2（`splitExternalEntityNode`、`placeNode`、`connectEntities` のノード選択）、`selectFeatureFunctions` の `nodeIds`、`DfdNodeView.duplicate` |

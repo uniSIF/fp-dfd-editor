@@ -66,14 +66,15 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
     s.setActiveTab('dfd');
   };
 
+  // 文字の列は幅を分け合い（flex）、右端の削除ボタンまで横スクロールなしで見えるようにする
   const columns: GridColDef<LedgerRow>[] = [
-    { field: 'displayNo', headerName: 'No', width: 80 },
-    { field: 'name', headerName: '名称', width: 150 },
-    { field: 'kind', headerName: '種別', width: 64, renderCell: ({ row }) => <KindBadge kind={row.kind} /> },
-    { field: 'complexity', headerName: '複雑度', width: 64, valueFormatter: (v: LedgerRow['complexity']) => COMPLEXITY_LABELS[v] },
-    { field: 'fp', headerName: 'FP', width: 52, align: 'right', headerAlign: 'right' },
+    { field: 'displayNo', headerName: 'No', width: 72 },
+    { field: 'name', headerName: '名称', flex: 1.2, minWidth: 100 },
+    { field: 'kind', headerName: '種別', width: 56, renderCell: ({ row }) => <KindBadge kind={row.kind} /> },
+    { field: 'complexity', headerName: '複雑度', width: 60, valueFormatter: (v: LedgerRow['complexity']) => COMPLEXITY_LABELS[v] },
+    { field: 'fp', headerName: 'FP', width: 44, align: 'right', headerAlign: 'right' },
     {
-      field: 'ownerFeatureId', headerName: type === 'data' ? '所有機能' : '所属機能', width: 220,
+      field: 'ownerFeatureId', headerName: type === 'data' ? '所有機能' : '所属機能', flex: 1.6, minWidth: 120,
       editable: type === 'data', type: 'singleSelect', valueOptions: featureOptions,
       valueGetter: (v: Id | null) => v ?? UNSET,
       renderCell: ({ row }) =>
@@ -84,7 +85,7 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
         ),
     },
     {
-      field: 'referencingFeatures', headerName: '参照している機能', width: 140, sortable: false,
+      field: 'referencingFeatures', headerName: '参照している機能', flex: 1, minWidth: 90, sortable: false,
       renderCell: ({ row }) =>
         row.referencingFeatures.length ? (
           <span style={{ display: 'flex', gap: 6, overflow: 'hidden' }}>
@@ -95,7 +96,18 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
         ),
     },
     {
-      field: 'description', headerName: '説明', flex: 1, minWidth: 200, editable: true,
+      field: 'complexityNote', headerName: '複雑度の推測', flex: 1.2, minWidth: 90, editable: true, sortable: false,
+      renderCell: ({ row }) =>
+        row.complexityNote ? (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{row.complexityNote}</span>}>
+            <span style={{ fontSize: 12, color: tokens.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{row.complexityNote}</span>
+          </Tooltip>
+        ) : (
+          <span style={{ fontSize: 12, color: tokens.textDisabled }}>推測を追加</span>
+        ),
+    },
+    {
+      field: 'description', headerName: '説明', flex: 1.6, minWidth: 100, editable: true,
       renderCell: ({ row }) =>
         row.description ? (
           <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{row.description}</span>}>
@@ -157,12 +169,16 @@ export function FunctionLedger({ softwareId }: { softwareId: Id }) {
             const s = useStore.getState();
             const owner = (next.ownerFeatureId as string) === UNSET ? null : next.ownerFeatureId;
             if (prev.type === 'data') {
-              const patch: { ownerFeatureId?: Id | null; description?: string } = {};
+              const patch: { ownerFeatureId?: Id | null; description?: string; complexityNote?: string } = {};
               if (owner !== prev.ownerFeatureId) patch.ownerFeatureId = owner;
               if (next.description !== prev.description) patch.description = next.description;
+              if (next.complexityNote !== prev.complexityNote) patch.complexityNote = next.complexityNote;
               if (Object.keys(patch).length) s.updateDataFunction(prev.id, patch);
-            } else if (next.description !== prev.description) {
-              s.updateTransactionFunction(prev.id, { description: next.description });
+            } else {
+              const patch: { description?: string; complexityNote?: string } = {};
+              if (next.description !== prev.description) patch.description = next.description;
+              if (next.complexityNote !== prev.complexityNote) patch.complexityNote = next.complexityNote;
+              if (Object.keys(patch).length) s.updateTransactionFunction(prev.id, patch);
             }
             // 所有機能ラベルや警告など派生値を含む最新の行をストアから返す
             return selectLedger(useStore.getState().doc, softwareId).find((r) => r.id === prev.id) ?? next;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { canConnect, ruleKindOf } from './dfdRules';
-import { COMPLEXITY_LABELS, DEV_TYPE_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
-import { featurePathLabel, featuresInOrder, getFeaturePath, refName, softwareIdOfFeature } from './queries';
+import { CHARACTERISTIC_NAMES, COMPLEXITY_LABELS, DEV_TYPE_LABELS, FUNCTION_KIND_LABELS } from './fpTables';
+import { appliedCharacteristicPreset, characteristicPresets, featurePathLabel, featuresInOrder, getFeaturePath, refName, softwareIdOfFeature } from './queries';
 import type { Complexity, DataFunctionKind, DevType, DfdNode, FpDocument, Id, NodeRefType, TransactionKind } from './types';
 
 /**
@@ -25,12 +25,15 @@ export interface ExchangeElement {
 export interface ExchangeDataFunction extends ExchangeElement {
   kind: DataFunctionKind;
   complexity: Complexity;
+  /** 複雑度の推測（複雑度をそう判断した根拠。FR-FN-20） */
+  complexityNote: string;
   /** 所有機能の key。この機能が所有するなら省略 */
   owner?: string;
 }
 export interface ExchangeTransaction extends ExchangeElement {
   kind: TransactionKind;
   complexity: Complexity;
+  complexityNote: string;
 }
 export interface ExchangeFlow {
   from: string;
@@ -69,7 +72,7 @@ const RULES = {
   dataFlows:
     'dataFlows の from / to は同じ機能の dfd 内の要素の key。外部エンティティ同士、データファンクション同士、外部エンティティとデータファンクションは直接つなげない（必ずプロセスを介する）。label には流れるデータの名称を書く',
   description:
-    '機能の description にはその機能が業務で何をするか、各要素の description にはその要素の説明と種別・複雑度の根拠を書く。「〜を参考に作成」「〜から変更」などの作り方・変更履歴・AI や依頼への言及は書かない（コードブロックの外に書く）。変えない既存の説明はそのまま返す',
+    '機能の description にはその機能が業務で何をするか、各要素の description にはその要素の説明を、データファンクション・トランザクションファンクションの complexityNote には複雑度の根拠（DET・FTR・RET の数や推定）を書く。「〜を参考に作成」「〜から変更」などの作り方・変更履歴・AI や依頼への言及は書かない（コードブロックの外に書く）。変えない既存の説明はそのまま返す',
   placed: '"placed": false の要素は、機能に属するが DFD に置いていない要素。そのままにすれば置かれない。DFD に置くなら placed を消す',
   split:
     '外部エンティティの "split": true は、同じ外部エンティティを入力元（左）と出力先（右）の 2 か所に分けて置くこと。dataFlows の from に書くと左、to に書くと右のノードにつながる。流用元の外部エンティティが split なら、新しい機能でも split: true を付ける',
@@ -99,13 +102,13 @@ function featureDfd(doc: FpDocument, featureId: Id): ExchangeDfd {
     dataFunctions: Object.values(doc.dataFunctions)
       .filter((d) => d.softwareId === swId && (placed('dataFunction', d.id) || d.ownerFeatureId === featureId))
       .map((d) => ({
-        key: d.displayNo, name: d.name, kind: d.kind, complexity: d.complexity, description: d.description,
+        key: d.displayNo, name: d.name, kind: d.kind, complexity: d.complexity, complexityNote: d.complexityNote ?? '', description: d.description,
         ...(d.ownerFeatureId !== featureId ? { owner: d.ownerFeatureId ?? '' } : {}),
         ...flag('dataFunction', d.id),
       })),
     transactionFunctions: Object.values(doc.transactionFunctions)
       .filter((t) => t.featureId === featureId)
-      .map((t) => ({ key: t.displayNo, name: t.name, kind: t.kind, complexity: t.complexity, description: t.description, ...flag('transactionFunction', t.id) })),
+      .map((t) => ({ key: t.displayNo, name: t.name, kind: t.kind, complexity: t.complexity, complexityNote: t.complexityNote ?? '', description: t.description, ...flag('transactionFunction', t.id) })),
     nonCountedProcesses: Object.values(doc.nonCountedProcesses)
       .filter((p) => p.featureId === featureId)
       .map((p) => ({ key: ncpKey(p.id), name: p.name, description: p.description, ...flag('nonCountedProcess', p.id) })),
@@ -140,17 +143,22 @@ export function buildExchange(doc: FpDocument, featureIds: Id[]) {
         description: f.description,
         devType: DEV_TYPE_LABELS[f.devType],
         vendor: (f.vendorId && doc.vendors[f.vendorId]?.name) || '',
+        // 最後に適用したシステム特性の既定値のセット（FR-IO-11）。別の名前で返すと、そのセットを適用する
+        characteristicPreset: appliedCharacteristicPreset(doc.softwares[swId].settings, f).name,
         dfd: featureDfd(doc, f.id),
       };
     }),
     catalog: {
-      note: '同じソフトウェアにある既存の分類・機能・外注業者・外部エンティティ・データファンクション・トランザクションファンクション・非計上プロセス。外部エンティティ・データファンクションを DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない。トランザクションファンクション・非計上プロセスは名前の重複を避けるための一覧で、ほかの機能の DFD では使えない',
+      note: '同じソフトウェアにある既存の分類・機能・外注業者・システム特性の既定値のセット・外部エンティティ・データファンクション・トランザクションファンクション・非計上プロセス。外部エンティティ・データファンクションを DFD で使う場合は key をそのまま書く。他の機能が所有するデータファンクションは参照として置かれ、その機能の FP には計上されない。トランザクションファンクション・非計上プロセスは名前の重複を避けるための一覧で、ほかの機能の DFD では使えない',
       categories: featuresInOrder(doc, swId).map((f) => getFeaturePath(doc, f.id)!).reduce<{ category1: string; category2: string }[]>((acc, p) => {
         if (!acc.some((c) => c.category1 === p.category1.name && c.category2 === p.category2.name)) acc.push({ category1: p.category1.name, category2: p.category2.name });
         return acc;
       }, []),
       features: featuresInOrder(doc, swId).map((f) => ({ key: f.id, path: featurePathLabel(doc, f.id), exported: featureIds.includes(f.id) })),
       vendors: doc.softwares[swId].vendorIds.map((id) => doc.vendors[id]).filter(Boolean).map((v) => ({ name: v.name })),
+      // システム特性 C1〜C14 の名前と、機能に適用できる既定値のセット（values は C1〜C14 の順）
+      characteristics: CHARACTERISTIC_NAMES.map((name, i) => `C${i + 1} ${name}`),
+      characteristicPresets: characteristicPresets(doc.softwares[swId].settings).map((p) => ({ name: p.name, values: [...p.values] })),
       externalEntities: Object.values(doc.externalEntities)
         .filter((e) => e.softwareId === swId)
         .map((e) => ({ key: e.displayNo, name: e.name, description: e.description })),
@@ -209,10 +217,11 @@ const dfdSchema = z.object({
   dataFunctions: z.array(element.extend({
     kind: z.preprocess(upper, z.enum(['ILF', 'EIF'], { message: 'データファンクションの kind は ILF か EIF です' })),
     complexity,
+    complexityNote: text,
     // 空文字は「所有機能なし」（書き出しで所有機能が未設定の DF）。省略（undefined）とは区別する
     owner: z.preprocess((v) => (v === null || v === undefined ? undefined : String(v).trim()), z.string().optional()),
   })).default([]),
-  transactionFunctions: z.array(element.extend({ kind: z.preprocess(upper, z.enum(['EI', 'EO', 'EQ'], { message: 'トランザクションの kind は EI・EO・EQ のいずれかです' })), complexity })).default([]),
+  transactionFunctions: z.array(element.extend({ kind: z.preprocess(upper, z.enum(['EI', 'EO', 'EQ'], { message: 'トランザクションの kind は EI・EO・EQ のいずれかです' })), complexity, complexityNote: text })).default([]),
   nonCountedProcesses: z.array(element).default([]),
   dataFlows: z.array(z.object({ from: key, to: key, label: text })).default([]),
 });
@@ -228,6 +237,8 @@ const featureSchema = z.object({
   devType: text,
   /** 外注業者の名前。項目がなければ変更しない。空文字・「未選択」は外注なし */
   vendor: z.preprocess((v) => (v === undefined ? undefined : v === null ? '' : String(v)), z.string().optional()),
+  /** システム特性の既定値のセットの名前。項目がない・空文字なら変更しない（新しい機能は標準） */
+  characteristicPreset: z.preprocess((v) => (v === undefined || v === null ? undefined : String(v).trim() || undefined), z.string().optional()),
   dfd: dfdSchema,
 });
 const formatField = z.literal(EXCHANGE_FORMAT, { message: `format が "${EXCHANGE_FORMAT}" ではありません` }).optional();
@@ -245,6 +256,8 @@ export interface ImportFeature {
   devType: string;
   /** undefined は指定なし（変更しない）、空文字は外注なし */
   vendor?: string;
+  /** システム特性の既定値のセットの名前。undefined は指定なし */
+  characteristicPreset?: string;
   dfd: z.infer<typeof dfdSchema>;
 }
 export interface ImportData {
@@ -292,6 +305,7 @@ export function parseExchange(input: string): { ok: true; data: ImportData } | {
           description: f.description,
           devType: f.devType.trim(),
           vendor: f.vendor?.trim(),
+          characteristicPreset: f.characteristicPreset,
           dfd: f.dfd,
         };
       }),
@@ -299,7 +313,7 @@ export function parseExchange(input: string): { ok: true; data: ImportData } | {
   };
 }
 
-type Patch = Partial<{ name: string; kind: string; complexity: Complexity; description: string }>;
+type Patch = Partial<{ name: string; kind: string; complexity: Complexity; description: string; complexityNote: string }>;
 
 export interface FeaturePlan {
   /** 交換データ上の機能の key */
@@ -316,6 +330,11 @@ export interface FeaturePlan {
   /** 既存の機能の名称・説明・開発区分・外注業者の変更 */
   featurePatch: Partial<{ name: string; description: string; devType: DevType; vendorId: Id | null }>;
   featureChanges: string[];
+  /**
+   * 適用するシステム特性の既定値のセット（null は標準）。その値で C1〜C14 を上書きし、適用したセットとして記録する。
+   * undefined は変えない（新しい機能は標準をコピーする）
+   */
+  characteristicPresetId?: Id | null;
   /** この DFD に新しく置く既存の要素（catalog から参照など） */
   places: { refType: NodeRefType; refId: Id; key: string; name: string }[];
   /** 取り込み後の DFD にあるすべての要素の key（placed: false の要素は含めない） */
@@ -342,7 +361,7 @@ export interface ImportPlan {
   /** 新しく作る分類 */
   newCategories: { category1: string; category2: string; newCategory1: boolean }[];
   /** 新しく作る要素。TF・非計上プロセスは featureKey の機能に属し、DF は featureKey の機能が所有する */
-  creates: { refType: NodeRefType; key: string; name: string; kind?: DataFunctionKind | TransactionKind; complexity?: Complexity; description: string; featureKey: string | null; ownerFeatureId?: Id }[];
+  creates: { refType: NodeRefType; key: string; name: string; kind?: DataFunctionKind | TransactionKind; complexity?: Complexity; description: string; complexityNote?: string; featureKey: string | null; ownerFeatureId?: Id }[];
   /** 既存の要素の変更 */
   updates: { refType: NodeRefType; refId: Id; key: string; name: string; changes: string[]; patch: Patch }[];
   /**
@@ -412,6 +431,16 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     return d;
   };
   const vendorName = (id: Id | null) => (id ? doc.vendors[id]?.name ?? '' : '未選択');
+  const presets = characteristicPresets(sw.settings);
+  /** システム特性の既定値のセット。指定なしは undefined。名前が見つからなければ警告して undefined */
+  const resolvePreset = (v: string | undefined, where: string) => {
+    if (v === undefined) return undefined;
+    const norm = (s: string) => s.replace(/\s/g, '').toLowerCase();
+    const hit = presets.find((p) => p.name === v) ?? presets.find((p) => norm(p.name) === norm(v));
+    if (hit) return hit;
+    plan.warnings.push(`${where}のシステム特性の既定値のセット「${v}」は登録されていないため、適用しません（登録済み: ${presets.map((p) => p.name).join('、')}）。セットは設定画面で追加できます。`);
+    return undefined;
+  };
 
   // 1. 機能の対応づけ
   const featureKeys = new Set<string>();
@@ -469,7 +498,13 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
       if ((f.category1 && f.category1 !== p.category1.name) || (f.category2 && f.category2 !== p.category2.name)) {
         plan.warnings.push(`機能「${existing.name}」の分類の変更は取り込みません（分類の移動はツリーで行います）。`);
       }
-      plan.features.push(emptyFeaturePlan(k, id, existing.name, p.category1.name, p.category2.name, existing.devType, existing.vendorId, existing.description, featurePatch, featureChanges));
+      // 書き出したときと違うセットの名前なら、そのセットを適用する。同じ名前なら、個別に変えた値を上書きしないよう何もしない
+      const preset = resolvePreset(f.characteristicPreset, where);
+      const applied = appliedCharacteristicPreset(sw.settings, existing);
+      if (preset && preset.id !== applied.id) featureChanges.push(`システム特性の既定値のセット ${applied.name} → ${preset.name}（C1〜C14 を上書き）`);
+      const fp = emptyFeaturePlan(k, id, existing.name, p.category1.name, p.category2.name, existing.devType, existing.vendorId, existing.description, featurePatch, featureChanges);
+      if (preset && preset.id !== applied.id) fp.characteristicPresetId = preset.id;
+      plan.features.push(fp);
       return;
     }
     // 新しい機能
@@ -489,8 +524,13 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     const where = `新しい機能「${f.name}」`;
     const dev = devTypeOf(f.devType, where) ?? 'new';
     const vendorId = resolveVendor(f.vendor, where) ?? null;
+    const preset = resolvePreset(f.characteristicPreset, where);
     const featureChanges = [`開発区分 ${DEV_TYPE_LABELS[dev]}`, `外注業者 ${vendorName(vendorId)}`];
-    plan.features.push(emptyFeaturePlan(k, null, f.name, f.category1, f.category2, dev, vendorId, f.description, {}, featureChanges));
+    // 既定値のセットが標準だけのソフトウェアでは、表示を増やさない
+    if (presets.length > 1) featureChanges.push(`システム特性の既定値のセット ${(preset ?? presets[0]).name}`);
+    const fp = emptyFeaturePlan(k, null, f.name, f.category1, f.category2, dev, vendorId, f.description, {}, featureChanges);
+    if (preset) fp.characteristicPresetId = preset.id;
+    plan.features.push(fp);
   });
   if (plan.errors.length) return plan;
   /** 出力に含まれる既存の機能（名前で対応づけたものを含む） */
@@ -547,7 +587,7 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
     const canonical = (k: string) => aliases.get(k) ?? k;
 
     for (const [list, refType, label] of LIST_TYPES) {
-      for (const item of f.dfd[list] as (ExchangeElement & { kind?: string; complexity?: Complexity; owner?: string })[]) {
+      for (const item of f.dfd[list] as (ExchangeElement & { kind?: string; complexity?: Complexity; complexityNote?: string; owner?: string })[]) {
         const k = canonical(item.key);
         if (localKeys.has(k)) {
           plan.errors.push(`${where}: key「${k}」が重複しています。`);
@@ -588,7 +628,7 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
             else plan.warnings.push(`${where}: データファンクション「${item.name}」の owner「${item.owner}」が見つからないため、この機能の所有にします。`);
           }
           plan.creates.push({
-            refType, key: k, name: item.name, kind: item.kind as DataFunctionKind | TransactionKind | undefined, complexity: item.complexity, description: item.description,
+            refType, key: k, name: item.name, kind: item.kind as DataFunctionKind | TransactionKind | undefined, complexity: item.complexity, description: item.description, complexityNote: item.complexityNote || undefined,
             featureKey: refType === 'externalEntity' ? null : ownerKey, ownerFeatureId,
           });
           fp.createKeys.push(k);
@@ -642,6 +682,8 @@ export function planImport(doc: FpDocument, softwareId: Id, data: ImportData, op
         if (item.kind && item.kind !== cur.kind) { patch.kind = item.kind; changes.push(`種別 ${cur.kind} → ${item.kind}`); }
         if (item.complexity && item.complexity !== cur.complexity) { patch.complexity = item.complexity; changes.push(`複雑度 ${COMPLEXITY_LABELS[cur.complexity!]} → ${COMPLEXITY_LABELS[item.complexity]}`); }
         if (item.description !== cur.description && item.description !== '') { patch.description = item.description; changes.push('説明'); }
+        // 複雑度の推測も説明と同じく、空で返されたときは消さない
+        if (item.complexityNote && item.complexityNote !== (cur.complexityNote ?? '')) { patch.complexityNote = item.complexityNote; changes.push('複雑度の推測'); }
         if (!changes.length) continue;
         const df = ex.refType === 'dataFunction' ? doc.dataFunctions[ex.refId] : null;
         if (df && !ownsHere && (!existingFeatureId || df.ownerFeatureId !== existingFeatureId)) {
@@ -836,15 +878,15 @@ function emptyFeaturePlan(
   };
 }
 
-function currentOf(doc: FpDocument, refType: NodeRefType, refId: Id): { name: string; kind?: string; complexity?: Complexity; description: string } {
+function currentOf(doc: FpDocument, refType: NodeRefType, refId: Id): { name: string; kind?: string; complexity?: Complexity; description: string; complexityNote?: string } {
   switch (refType) {
     case 'dataFunction': {
       const d = doc.dataFunctions[refId];
-      return { name: d.name, kind: d.kind, complexity: d.complexity, description: d.description };
+      return { name: d.name, kind: d.kind, complexity: d.complexity, description: d.description, complexityNote: d.complexityNote };
     }
     case 'transactionFunction': {
       const t = doc.transactionFunctions[refId];
-      return { name: t.name, kind: t.kind, complexity: t.complexity, description: t.description };
+      return { name: t.name, kind: t.kind, complexity: t.complexity, description: t.description, complexityNote: t.complexityNote };
     }
     case 'nonCountedProcess': {
       const p = doc.nonCountedProcesses[refId];

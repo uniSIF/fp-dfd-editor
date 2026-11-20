@@ -205,7 +205,7 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
   if (!view) return null;
   const feature = doc.features[featureId];
   const { refType, refId } = view;
-  const update = (patch: { name?: string; description?: string; kind?: string; complexity?: Complexity; ownerFeatureId?: Id | null }) => {
+  const update = (patch: { name?: string; description?: string; complexityNote?: string; kind?: string; complexity?: Complexity; ownerFeatureId?: Id | null }) => {
     if (refType === 'dataFunction') s.updateDataFunction(refId, patch as Parameters<typeof s.updateDataFunction>[1]);
     else if (refType === 'transactionFunction') s.updateTransactionFunction(refId, patch as Parameters<typeof s.updateTransactionFunction>[1]);
     else if (refType === 'nonCountedProcess') s.updateNonCountedProcess(refId, { name: patch.name, description: patch.description });
@@ -244,6 +244,14 @@ function NodeProperties({ doc, featureId, nodeId }: { doc: FpDocument; featureId
             <ToggleButtonGroup exclusive fullWidth size="small" value={view.complexity} disabled={readonly} onChange={(_, v) => v && update({ complexity: v })} aria-label="複雑度">
               {COMPLEXITIES.map((c) => <ToggleButton key={c} value={c}>{COMPLEXITY_LABELS[c]}</ToggleButton>)}
             </ToggleButtonGroup>
+          </Field>
+        )}
+        {view.complexity && (
+          <Field label="複雑度の推測">
+            <CommitTextField
+              fullWidth multiline minRows={1} maxRows={4} value={view.complexityNote} onCommit={(v) => update({ complexityNote: v })} disabled={readonly}
+              placeholder="例: DET 16・FTR 1 と推定し中" slotProps={{ htmlInput: { 'aria-label': '複雑度の推測' } }}
+            />
           </Field>
         )}
         {view.kind && view.complexity && (

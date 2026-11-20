@@ -129,10 +129,10 @@ export interface DocumentSlice {
   applyCharacteristicPreset: (id: Id, presetId: Id | null) => void;
 
   // ファンクション
-  addDataFunction: (p: { featureId: Id; name: string; kind: DataFunctionKind; complexity: Complexity; description?: string; place?: PlaceOption }) => Id;
-  updateDataFunction: (id: Id, patch: Partial<{ name: string; kind: DataFunctionKind; complexity: Complexity; ownerFeatureId: Id | null; description: string }>) => void;
-  addTransactionFunction: (p: { featureId: Id; name: string; kind: TransactionKind; complexity: Complexity; description?: string; place?: PlaceOption }) => Id;
-  updateTransactionFunction: (id: Id, patch: Partial<{ name: string; kind: TransactionKind; complexity: Complexity; description: string }>) => void;
+  addDataFunction: (p: { featureId: Id; name: string; kind: DataFunctionKind; complexity: Complexity; description?: string; complexityNote?: string; place?: PlaceOption }) => Id;
+  updateDataFunction: (id: Id, patch: Partial<{ name: string; kind: DataFunctionKind; complexity: Complexity; ownerFeatureId: Id | null; description: string; complexityNote: string }>) => void;
+  addTransactionFunction: (p: { featureId: Id; name: string; kind: TransactionKind; complexity: Complexity; description?: string; complexityNote?: string; place?: PlaceOption }) => Id;
+  updateTransactionFunction: (id: Id, patch: Partial<{ name: string; kind: TransactionKind; complexity: Complexity; description: string; complexityNote: string }>) => void;
   addNonCountedProcess: (p: { featureId: Id; name: string; description?: string; place?: PlaceOption }) => Id;
   updateNonCountedProcess: (id: Id, patch: Partial<{ name: string; description: string }>) => void;
   addExternalEntity: (p: { featureId: Id; name: string; description?: string; place?: PlaceOption }) => Id;

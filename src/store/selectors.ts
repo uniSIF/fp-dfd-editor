@@ -113,6 +113,8 @@ export interface FunctionRow {
   complexity: Complexity | null;
   fp: number | null;
   description: string;
+  /** 複雑度の推測（DF・TF だけ。ほかは空） */
+  complexityNote: string;
   /** 他機能所有の DF / 外部エンティティ */
   isReference: boolean;
   ownerName: string | null;
@@ -162,27 +164,27 @@ export const selectFeatureFunctions = memoByDoc<Id, FunctionRow[]>((doc, feature
   const dfs = Object.values(doc.dataFunctions).filter((d) => d.softwareId === swId);
   for (const d of dfs.filter((d) => d.ownerFeatureId === featureId).sort(byNo)) {
     push({ refType: 'dataFunction', refId: d.id, displayNo: d.displayNo, name: d.name, kind: d.kind, complexity: d.complexity,
-      fp: FP_WEIGHTS[d.kind][d.complexity], description: d.description, isReference: false, ownerName: null });
+      fp: FP_WEIGHTS[d.kind][d.complexity], description: d.description, complexityNote: d.complexityNote ?? '', isReference: false, ownerName: null });
   }
   for (const d of dfs.filter((d) => d.ownerFeatureId !== featureId && nodeOf('dataFunction', d.id)).sort(byNo)) {
     push({ refType: 'dataFunction', refId: d.id, displayNo: d.displayNo, name: d.name, kind: d.kind, complexity: d.complexity,
-      fp: null, description: d.description, isReference: true,
+      fp: null, description: d.description, complexityNote: d.complexityNote ?? '', isReference: true,
       ownerName: d.ownerFeatureId ? doc.features[d.ownerFeatureId]?.name ?? '' : null, extraWarn: d.ownerFeatureId === null });
   }
   for (const t of Object.values(doc.transactionFunctions).filter((t) => t.featureId === featureId).sort(byNo)) {
     push({ refType: 'transactionFunction', refId: t.id, displayNo: t.displayNo, name: t.name, kind: t.kind, complexity: t.complexity,
-      fp: FP_WEIGHTS[t.kind][t.complexity], description: t.description, isReference: false, ownerName: null });
+      fp: FP_WEIGHTS[t.kind][t.complexity], description: t.description, complexityNote: t.complexityNote ?? '', isReference: false, ownerName: null });
   }
   for (const p of Object.values(doc.nonCountedProcesses).filter((p) => p.featureId === featureId)) {
     push({ refType: 'nonCountedProcess', refId: p.id, displayNo: '—', name: p.name, kind: null, complexity: null, fp: null,
-      description: p.description, isReference: false, ownerName: null });
+      description: p.description, complexityNote: '', isReference: false, ownerName: null });
   }
   const eeIds = [...new Set(f.dfd.nodes.filter((n) => n.refType === 'externalEntity').map((n) => n.refId))];
   for (const n of eeIds.map((refId) => ({ refId }))) {
     const e = doc.externalEntities[n.refId];
     if (!e) continue;
     push({ refType: 'externalEntity', refId: e.id, displayNo: e.displayNo, name: e.name, kind: null, complexity: null, fp: null,
-      description: e.description, isReference: false, ownerName: null });
+      description: e.description, complexityNote: '', isReference: false, ownerName: null });
   }
   return rows;
 });
@@ -205,6 +207,8 @@ export interface LedgerRow {
   ownerLabel: string;
   referencingFeatures: { id: Id; name: string }[];
   description: string;
+  /** 複雑度の推測 */
+  complexityNote: string;
   warning: string | null;
 }
 
@@ -218,7 +222,7 @@ export const selectLedger = memoByDoc<Id, LedgerRow[]>((doc, softwareId) => {
       fp: FP_WEIGHTS[d.kind][d.complexity], ownerFeatureId: d.ownerFeatureId,
       ownerLabel: d.ownerFeatureId ? featurePathLabel(doc, d.ownerFeatureId) : '未設定',
       referencingFeatures: referencingFeatures(doc, 'dataFunction', d.id).map((id) => ({ id, name: doc.features[id].name })),
-      description: d.description, warning: warnOf(d.id),
+      description: d.description, complexityNote: d.complexityNote ?? '', warning: warnOf(d.id),
     });
   }
   const fids = new Set(featuresInOrder(doc, softwareId).map((f) => f.id));
@@ -226,7 +230,7 @@ export const selectLedger = memoByDoc<Id, LedgerRow[]>((doc, softwareId) => {
     rows.push({
       id: t.id, type: 'transaction', displayNo: t.displayNo, name: t.name, kind: t.kind, complexity: t.complexity,
       fp: FP_WEIGHTS[t.kind][t.complexity], ownerFeatureId: t.featureId, ownerLabel: featurePathLabel(doc, t.featureId),
-      referencingFeatures: [], description: t.description, warning: warnOf(t.id),
+      referencingFeatures: [], description: t.description, complexityNote: t.complexityNote ?? '', warning: warnOf(t.id),
     });
   }
   return rows;
@@ -247,6 +251,8 @@ export interface DfdNodeView {
   ownerName: string | null;
   isReference: boolean;
   description: string;
+  /** 複雑度の推測（DF・TF だけ。ほかは空） */
+  complexityNote: string;
   warning: string | null;
   /** 同じ実体がこの DFD に複数配置されている（外部エンティティの重複表示の印に使う） */
   duplicate: boolean;
@@ -267,12 +273,12 @@ export const selectDfdNodes = memoByDoc<Id, DfdNodeView[]>((doc, featureId) => {
       case 'transactionFunction': {
         const t = doc.transactionFunctions[n.refId];
         return { ...base, name: t?.name ?? '', displayNo: t?.displayNo ?? null, kind: t?.kind ?? null, complexity: t?.complexity ?? null,
-          ownerName: null, isReference: false, description: t?.description ?? '', warning: unconnectedWarn };
+          ownerName: null, isReference: false, description: t?.description ?? '', complexityNote: t?.complexityNote ?? '', warning: unconnectedWarn };
       }
       case 'nonCountedProcess': {
         const p = doc.nonCountedProcesses[n.refId];
         return { ...base, name: p?.name ?? '', displayNo: null, kind: null, complexity: null, ownerName: null, isReference: false,
-          description: p?.description ?? '', warning: unconnectedWarn };
+          description: p?.description ?? '', complexityNote: '', warning: unconnectedWarn };
       }
       case 'dataFunction': {
         const d = doc.dataFunctions[n.refId];
@@ -280,12 +286,12 @@ export const selectDfdNodes = memoByDoc<Id, DfdNodeView[]>((doc, featureId) => {
         const isRef = d?.ownerFeatureId !== featureId;
         return { ...base, name: d?.name ?? '', displayNo: d?.displayNo ?? null, kind: d?.kind ?? null, complexity: d?.complexity ?? null,
           ownerName: isRef ? (ownerUnset ? '未設定' : doc.features[d?.ownerFeatureId ?? '']?.name ?? '') : null,
-          isReference: isRef, description: d?.description ?? '', warning: ownerUnset ? '所有機能が未設定' : unconnectedWarn };
+          isReference: isRef, description: d?.description ?? '', complexityNote: d?.complexityNote ?? '', warning: ownerUnset ? '所有機能が未設定' : unconnectedWarn };
       }
       case 'externalEntity': {
         const e = doc.externalEntities[n.refId];
         return { ...base, name: e?.name ?? '', displayNo: e?.displayNo ?? null, kind: null, complexity: null, ownerName: null,
-          isReference: false, description: e?.description ?? '', warning: unconnectedWarn };
+          isReference: false, description: e?.description ?? '', complexityNote: '', warning: unconnectedWarn };
       }
     }
   });

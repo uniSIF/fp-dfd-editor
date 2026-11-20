@@ -15,7 +15,7 @@ Copilot には、作成・変更した機能だけを、各機能の DFD の **�
 
 - 参考にして新しい機能を作る: 「顧客登録」「顧客検索」を書き出し、「これらを参考に、顧客管理 / 取引先情報 に『取引先登録』『取引先検索』の機能を作ってください。取引先マスタは新しい ILF にしてください」
 - 開発区分・外注業者を指定する: 「取引先登録は改修、外注は B社にしてください」
-- まとめて見直す: すべての機能を書き出し、「各機能の複雑度を見直し、根拠（DET・FTR）を description に書いてください」
+- まとめて見直す: すべての機能を書き出し、「各機能の複雑度を見直し、根拠（DET・FTR）を complexityNote に書いてください」
 - 1 つの機能に追加する: 「顧客登録」を書き出し、「CSV ファイルから顧客を一括登録する処理を追加してください」
 - 取り込みでエラーが出たとき: 「取り込み時に次のエラーが出ました。直した JSON を返してください: （エラー文）」
 
@@ -37,11 +37,12 @@ Copilot には、作成・変更した機能だけを、各機能の DFD の **�
 
 - 新しく作る・名前を変える要素が、ほかの要素と同じ名前になる場合は警告を出します（取り込みはできます）。トランザクション・非計上プロセスはソフトウェア全体、データファンクション・外部エンティティはそれぞれの中で比べます。
 - 機能の開発区分（`devType`: 新規 / 改修）と外注業者（`vendor`: 業者名、外注なしは空文字）を反映します。新しい機能で開発区分を省略すると「新規」、外注業者を省略すると未選択です。既存の機能で `vendor` の項目がなければ外注業者は変えません。設定画面に登録していない業者名や、新規・改修以外の開発区分は警告を出して反映しません。
+- システム特性の既定値のセット（`characteristicPreset`: セットの名前）を反映します。書き出す JSON には、機能ごとに最後に適用したセットの名前と、登録済みのセットの一覧（`catalog.characteristicPresets`。名前と C1〜C14 の値）が入ります。既存の機能は、書き出したときと違う名前が返されたときだけ、そのセットの値で C1〜C14 を上書きします（同じ名前のままなら、個別に変えた値はそのままです）。新しい機能は指定されたセット、指定がなければ「標準」を適用します。設定画面に登録していない名前は警告を出して適用しません。
 - 新しい機能は、`category1` / `category2` の分類の下に作ります。分類がなければ作ります（プレビューに表示）。
 - 機能の key が書き出したものと一致しない場合（エージェントが内部 ID を書き換えた、`NEW-F1` などを付けたなど）でも、名前（と分類）が同じ既存の機能が 1 つだけあれば、その機能を上書きします（警告で対応づけ先を表示）。同じ名前の機能が複数あって決められない場合は、新しい機能として追加します。
 - 同じように、既存の機能の中で見つからない key の要素は、名前が同じ既存の要素（トランザクション・非計上プロセスはその機能のもの、外部エンティティ・データファンクションはソフトウェアのもの。データファンクションは種別も同じもの）が 1 つだけあれば、同じ要素として扱います。データフローもその要素につなぎ直して対応づけます。
 - 既存の機能の名称・説明の変更は反映します。分類の変更は反映しません（ツリーで移動します）。
-- 既存の key の要素は、名称・種別・複雑度・説明の変更を反映します。説明が空のときは今の説明を残します。
+- 既存の key の要素は、名称・種別・複雑度・説明・複雑度の推測（`complexityNote`）の変更を反映します。説明・複雑度の推測が空のときは今の内容を残します。
 - 他の機能が所有するデータファンクションの変更は反映しません（その所有機能も出力に含まれている場合を除く。警告を表示）。外部エンティティの変更はソフトウェア全体に反映されます（警告を表示）。
 - 次のものはエラーになり、取り込めません。エラーの内容をそのままエージェントに伝えれば直してもらえます。
   - 他の機能のトランザクションファンクション・非計上プロセスの key を使っている
@@ -110,9 +111,9 @@ DFD の作成・見直しとは別に、**過剰計上にならない範囲で�
 # 受け取る JSON の読み方
 - rules: 作業ルールの要約。必ず従う。
 - software: 対象のソフトウェア。software.notes があれば、それはプロジェクト固有の補足情報（業務・用語・見積もりの決まり）なので、一般的な基準より優先して従う。
-- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、dfd を持つ。
-- dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。
-- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。transactionFunctions・nonCountedProcesses は全機能のトランザクション・非計上プロセスの名前の一覧で、名前の重複を避けるために使う（ほかの機能の DFD では使えない）。
+- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、characteristicPreset（システム特性 C1〜C14 の既定値のセットの名前）、dfd を持つ。
+- dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。dataFunctions・transactionFunctions の complexityNote は複雑度の推測（複雑度の根拠）。
+- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、システム特性の既定値のセット（characteristicPresets）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。transactionFunctions・nonCountedProcesses は全機能のトランザクション・非計上プロセスの名前の一覧で、名前の重複を避けるために使う（ほかの機能の DFD では使えない）。
 
 # 作業の進め方
 1. 依頼を読み、「参考にする機能」と「作成・変更する機能」を区別する。参考にする機能は、依頼で変更を求められない限り返さない。
@@ -122,8 +123,9 @@ DFD の作成・見直しとは別に、**過剰計上にならない範囲で�
 5. データフローでつなぐ。プロセス（トランザクション・非計上プロセス）を介さない接続は作らない。
 6. 返答の形式に従って返す。
 
-# 開発区分と外注業者
+# 開発区分・外注業者・システム特性
 - devType は「新規」か「改修」だけを書く。vendor は catalog.vendors にある名前をそのまま書く。外注しない機能は空文字にする。一覧にない業者名は使わない（取り込まれない）。
+- characteristicPreset は catalog.characteristicPresets にある name をそのまま書く。values は C1〜C14（catalog.characteristics の順、各 0〜5）で、機能の性質（オンライン / バッチ、性能・信頼性の要求など）に合うセットを選ぶ。一覧にない名前は使わない。
 - 依頼で指示があればそれに従う（例:「B社に外注」「改修として」）。
 - 指示がなければ、新しい機能は流用元・参考にした機能と同じにし、既存の機能は変えずにそのまま返す。
 
@@ -143,7 +145,7 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 - EI: FTR 0〜1 → DET 1〜15 は low、16 以上は medium。FTR 2 → DET 1〜4 は low、5〜15 は medium、16 以上は high。FTR 3 以上 → DET 1〜4 は medium、5 以上は high。
 - EO・EQ: FTR 0〜1 → DET 1〜19 は low、20 以上は medium。FTR 2〜3 → DET 1〜5 は low、6〜19 は medium、20 以上は high。FTR 4 以上 → DET 1〜5 は medium、6 以上は high。
 - ILF・EIF: RET 1 → DET 1〜50 は low、51 以上は medium。RET 2〜5 → DET 1〜19 は low、20〜50 は medium、51 以上は high。RET 6 以上 → DET 1〜19 は medium、20 以上は high。
-- 項目数が分からないときは質問する。ユーザーが推定でよいと答えたときだけ推定し、description に推定した DET・FTR（または RET）を書く。
+- 項目数が分からないときは質問する。ユーザーが推定でよいと答えたときだけ推定し、complexityNote に推定した DET・FTR（または RET）を書く。
 
 # データフローのルール
 - from / to には、同じ機能の dfd の中にある要素の key を書く。ほかの機能の要素とは直接つながない。
@@ -161,7 +163,8 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 # description（説明）の書き方
 - description はツールにそのまま保存され、見積もりの資料として人が読む。機能や要素そのものの説明だけを書く。
 - 機能の description: その機能が業務で何をするかを 1〜2 文で書く（例:「取引先の基本情報を新規に登録する。登録時に取引先コードの重複を確認する。」）。
-- 要素の description: その要素が何を表す・何をするかと、種別・複雑度の根拠（推定した DET・FTR・RET など）を 1〜2 文で書く。
+- 要素の description: その要素が何を表す・何をするかを 1〜2 文で書く。
+- complexityNote（複雑度の推測）: データファンクションとトランザクションファンクションに付ける。複雑度をそう判断した根拠（DET・FTR・RET の数や推定）を短く書く（例:「DET 16・FTR 1 と推定し medium」）。変えない既存の内容はそのまま返す。
 - 次のことは description に書かない。必要ならコードブロックの外の箇条書きに書く。
   - 作り方や考え方（例:「顧客登録の DFD を参考に作成」「〜を流用」「〜に合わせた」）
   - 変更の履歴（例:「名称を〜から変更」「複雑度を見直した」「新規追加」）
@@ -201,10 +204,11 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
       "description": "取引先の基本情報を新規に登録する。",
       "devType": "新規",
       "vendor": "A社",
+      "characteristicPreset": "標準",
       "dfd": {
         "externalEntities": [{ "key": "EE-001", "name": "利用者", "split": true, "description": "取引先の情報を登録する社内の担当者。" }],
-        "dataFunctions": [{ "key": "NEW-1", "name": "取引先マスタ", "kind": "ILF", "complexity": "low", "owner": "NEW-F1", "description": "取引先の名称・住所・連絡先。RET 1・DET 15 程度と推定し low。" }],
-        "transactionFunctions": [{ "key": "NEW-2", "name": "取引先登録入力", "kind": "EI", "complexity": "medium", "description": "取引先の情報を入力して取引先マスタに登録する。DET 16・FTR 1 と推定し medium。" }],
+        "dataFunctions": [{ "key": "NEW-1", "name": "取引先マスタ", "kind": "ILF", "complexity": "low", "complexityNote": "RET 1・DET 15 程度と推定し low", "owner": "NEW-F1", "description": "取引先の名称・住所・連絡先。" }],
+        "transactionFunctions": [{ "key": "NEW-2", "name": "取引先登録入力", "kind": "EI", "complexity": "medium", "complexityNote": "DET 16・FTR 1 と推定し medium", "description": "取引先の情報を入力して取引先マスタに登録する。" }],
         "nonCountedProcesses": [],
         "dataFlows": [
           { "from": "EE-001", "to": "NEW-2", "label": "登録情報" },
@@ -230,9 +234,9 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 # 受け取る JSON の読み方
 - rules: 作業ルールの要約。必ず従う。
 - software: 対象のソフトウェア。software.notes があれば、それはプロジェクト固有の補足情報（業務・用語・見積もりの決まり）なので、一般的な基準より優先して従う。
-- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、dfd を持つ。
-- dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。
-- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。transactionFunctions・nonCountedProcesses は全機能のトランザクション・非計上プロセスの名前の一覧で、名前の重複を避けるために使う（ほかの機能の DFD では使えない）。
+- features: 機能ごとの DFD。各機能は key（機能の識別子）、name（機能名）、category1（大分類）、category2（中分類）、description（機能の説明）、devType（開発区分: 新規 / 改修）、vendor（外注業者の名前。外注しないなら空文字）、characteristicPreset（システム特性 C1〜C14 の既定値のセットの名前）、dfd を持つ。
+- dfd: externalEntities（外部エンティティ）、dataFunctions（データファンクション）、transactionFunctions（トランザクションファンクション）、nonCountedProcesses（FP に計上しないプロセス）、dataFlows（データフロー）。dataFunctions の owner は、その DF を所有する（FP を計上する）機能の key。owner がない DF はその機能が所有している。dataFunctions・transactionFunctions の complexityNote は複雑度の推測（複雑度の根拠）。
+- catalog: 同じソフトウェアにある既存の分類（categories）、全機能（features）、外注業者（vendors）、システム特性の既定値のセット（characteristicPresets）、外部エンティティ、データファンクションの一覧。重複して作らず、使えるものは catalog の key をそのまま使う。transactionFunctions・nonCountedProcesses は全機能のトランザクション・非計上プロセスの名前の一覧で、名前の重複を避けるために使う（ほかの機能の DFD では使えない）。
 
 # 作業の進め方
 1. JSON を読み、下の「増やす観点」で、増やせる可能性がある点を機能ごとに洗い出す。
@@ -265,9 +269,9 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 - 迷う案は確度を低にして理由を書き、採否をユーザーに任せる。
 
 # 反映のしかた
-- 既存の機能を修正して返す。新しい機能は、ユーザーが求めたときだけ作る。devType・vendor は変えない。
+- 既存の機能を修正して返す。新しい機能は、ユーザーが求めたときだけ作る。devType・vendor・characteristicPreset は変えない。
 - 既存の要素の名前・description は、変える案を採用したときだけ変える。
-- 追加・変更した要素の description には、その要素の説明と種別・複雑度の根拠（聞いた DET・FTR・RET）を書く。「FP を増やすため」「案 3 を採用」などの経緯は書かない。
+- 追加・変更した要素の description にはその要素の説明を、complexityNote には複雑度の根拠（聞いた DET・FTR・RET）を書く。「FP を増やすため」「案 3 を採用」などの経緯は書かない。
 
 # 種別の判定基準
 - 外部エンティティ: システムの外にいて、データを渡す・受け取る人や外部システム（例: 利用者、管理者、決済サービス）。
@@ -285,7 +289,7 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 - EI: FTR 0〜1 → DET 1〜15 は low、16 以上は medium。FTR 2 → DET 1〜4 は low、5〜15 は medium、16 以上は high。FTR 3 以上 → DET 1〜4 は medium、5 以上は high。
 - EO・EQ: FTR 0〜1 → DET 1〜19 は low、20 以上は medium。FTR 2〜3 → DET 1〜5 は low、6〜19 は medium、20 以上は high。FTR 4 以上 → DET 1〜5 は medium、6 以上は high。
 - ILF・EIF: RET 1 → DET 1〜50 は low、51 以上は medium。RET 2〜5 → DET 1〜19 は low、20〜50 は medium、51 以上は high。RET 6 以上 → DET 1〜19 は medium、20 以上は high。
-- 項目数が分からないときは質問する。ユーザーが推定でよいと答えたときだけ推定し、description に推定した DET・FTR（または RET）を書く。
+- 項目数が分からないときは質問する。ユーザーが推定でよいと答えたときだけ推定し、complexityNote に推定した DET・FTR（または RET）を書く。
 
 # データフローのルール
 - from / to には、同じ機能の dfd の中にある要素の key を書く。ほかの機能の要素とは直接つながない。
@@ -303,7 +307,8 @@ DET はデータ項目数、FTR は参照・更新するファイル（ILF / EIF
 # description（説明）の書き方
 - description はツールにそのまま保存され、見積もりの資料として人が読む。機能や要素そのものの説明だけを書く。
 - 機能の description: その機能が業務で何をするかを 1〜2 文で書く（例:「取引先の基本情報を新規に登録する。登録時に取引先コードの重複を確認する。」）。
-- 要素の description: その要素が何を表す・何をするかと、種別・複雑度の根拠（推定した DET・FTR・RET など）を 1〜2 文で書く。
+- 要素の description: その要素が何を表す・何をするかを 1〜2 文で書く。
+- complexityNote（複雑度の推測）: データファンクションとトランザクションファンクションに付ける。複雑度をそう判断した根拠（DET・FTR・RET の数や推定）を短く書く（例:「DET 16・FTR 1 と推定し medium」）。変えない既存の内容はそのまま返す。
 - 次のことは description に書かない。必要ならコードブロックの外の箇条書きに書く。
   - 作り方や考え方（例:「顧客登録の DFD を参考に作成」「〜を流用」「〜に合わせた」）
   - 変更の履歴（例:「名称を〜から変更」「複雑度を見直した」「新規追加」）

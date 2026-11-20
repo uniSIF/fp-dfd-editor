@@ -34,6 +34,7 @@ interface Item {
   kind: DataFunctionKind | TransactionKind | null;
   complexity: Complexity | null;
   description: string;
+  complexityNote?: string;
 }
 
 /**
@@ -62,7 +63,7 @@ export function ReferenceDialog({ featureId, position, onClose, onDuplicate }: {
           .filter((d) => d.softwareId === swId)
           .sort((a, b) => a.displayNo.localeCompare(b.displayNo))
           .map((d) => ({
-            id: d.id, name: d.name, badge: d.kind, kind: d.kind, complexity: d.complexity, description: d.description,
+            id: d.id, name: d.name, badge: d.kind, kind: d.kind, complexity: d.complexity, description: d.description, complexityNote: d.complexityNote,
             meta: d.ownerFeatureId ? `所有: ${doc.features[d.ownerFeatureId]?.name ?? ''}` : '所有: 未設定',
             warn: d.ownerFeatureId === null,
           }))
@@ -71,7 +72,7 @@ export function ReferenceDialog({ featureId, position, onClose, onDuplicate }: {
             .filter((t) => softwareIdOfFeature(doc, t.featureId) === swId)
             .sort((a, b) => a.displayNo.localeCompare(b.displayNo))
             .map((t) => ({
-              id: t.id, name: t.name, badge: t.kind, kind: t.kind, complexity: t.complexity, description: t.description,
+              id: t.id, name: t.name, badge: t.kind, kind: t.kind, complexity: t.complexity, description: t.description, complexityNote: t.complexityNote,
               meta: `所属: ${doc.features[t.featureId]?.name ?? ''}`, warn: false,
             }))
         : Object.values(doc.externalEntities)
@@ -86,7 +87,7 @@ export function ReferenceDialog({ featureId, position, onClose, onDuplicate }: {
       const i = items.find((x) => x.id === id);
       if (!i || !onDuplicate) return;
       onClose();
-      onDuplicate({ kind: ADD_KIND[tab], position, duplicateOf: { name: i.name, kind: i.kind, complexity: i.complexity, description: i.description } });
+      onDuplicate({ kind: ADD_KIND[tab], position, duplicateOf: { name: i.name, kind: i.kind, complexity: i.complexity, description: i.description, complexityNote: i.complexityNote } });
       return;
     }
     const r = useStore.getState().placeNode(featureId, tab as 'dataFunction' | 'externalEntity', id, position);

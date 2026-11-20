@@ -96,6 +96,8 @@ export interface DataFunction {
   /** null = 所有機能未設定 */
   ownerFeatureId: Id | null;
   description: string;
+  /** 複雑度の推測（任意）。複雑度をそう判断した根拠の自由記述（例: DET 16・FTR 1 と推定し中）。未設定は空（FR-FN-20） */
+  complexityNote?: string;
 }
 
 export interface TransactionFunction {
@@ -107,6 +109,8 @@ export interface TransactionFunction {
   kind: TransactionKind;
   complexity: Complexity;
   description: string;
+  /** 複雑度の推測（任意）。複雑度をそう判断した根拠の自由記述（例: DET 16・FTR 1 と推定し中）。未設定は空（FR-FN-20） */
+  complexityNote?: string;
 }
 
 export interface NonCountedProcess {
